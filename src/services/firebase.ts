@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -35,4 +35,4 @@ if (firebaseConfig.apiKey) {
   console.warn('FIREBASE MISSING: Skapa ditt projekt och lägg in nycklar i .env');
 }
 
-export { auth, db, googleProvider, onAuthStateChanged, signInWithPopup, signOut };
+export { auth, db, googleProvider, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword };

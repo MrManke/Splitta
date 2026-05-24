@@ -4,7 +4,7 @@ export interface User {
   uid: string;
   email: string;
   alias: string;
-  role: 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'user';
   phone?: string;
 }
 

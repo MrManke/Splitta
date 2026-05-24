@@ -28,13 +28,13 @@ export function useFirebase() {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             alias: isSuperAdmin ? 'Ölle' : (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Användare'),
-            role: isSuperAdmin ? 'admin' : 'user',
+            role: isSuperAdmin ? 'superadmin' : 'user',
           };
           await firebaseService.saveUser(userDoc);
-        } else if (isSuperAdmin && (userDoc.alias !== 'Ölle' || userDoc.role !== 'admin')) {
-           // Enforce Ölle alias and admin role for existing documents
+        } else if (isSuperAdmin && (userDoc.alias !== 'Ölle' || userDoc.role !== 'superadmin')) {
+           // Enforce Ölle alias and superadmin role for existing documents
            userDoc.alias = 'Ölle';
-           userDoc.role = 'admin';
+           userDoc.role = 'superadmin';
            await firebaseService.saveUser(userDoc);
         }
         setCurrentUser(userDoc);
@@ -66,9 +66,9 @@ export function useFirebase() {
       return;
     }
     
-    // Admins see all trips, users see trips they are part of
+    // Superadmins see all trips, admins and users see trips they are part of
     let q;
-    if (currentUser.role === 'admin') {
+    if (currentUser.role === 'superadmin') {
       q = collection(db, 'trips');
     } else {
       q = query(collection(db, 'trips'), where('participant_uids', 'array-contains', currentUser.uid));
@@ -99,7 +99,7 @@ export function useFirebase() {
       
       // Filter activities in memory (similar to before)
       const filteredActs = actsData.filter(a => {
-        if (currentUser.role === 'admin') return true;
+        if (currentUser.role === 'superadmin') return true;
         if (a.user_alias === currentUser.alias) return true;
         if (!a.involved_uids || a.involved_uids.length === 0) return true;
         return a.involved_uids.includes(currentUser.uid);

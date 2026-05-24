@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { firebaseService } from './services/firebaseService';
 import { useFirebase } from './hooks/useFirebase';
-import { signInWithPopup, googleProvider, auth, db } from './services/firebase';
+import { signInWithPopup, googleProvider, auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword } from './services/firebase';
 import { disableNetwork, enableNetwork } from 'firebase/firestore';
 import { storageService, type Trip, type User } from './services/storageService';
 import { ocrService } from './services/ocrService';
@@ -100,6 +100,17 @@ function App() {
   const [inviteAlias, setInviteAlias] = useState('');
   const [invitePhone, setInvitePhone] = useState('');
   const [newCommentText, setNewCommentText] = useState<{ [expenseId: string]: string }>({});
+
+  // Form Inputs - Admin Edit User
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [swishPhoneInput, setSwishPhoneInput] = useState('');
+
+  // Form Inputs - Auth & Profile
+  const [emailLogin, setEmailLogin] = useState('');
+  const [passwordLogin, setPasswordLogin] = useState('');
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
+  const [phonePromptInput, setPhonePromptInput] = useState('');
 
   // Refs for uploading files
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -584,6 +595,19 @@ function App() {
     );
   }
 
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (isSignUpMode) {
+        await createUserWithEmailAndPassword(auth, emailLogin, passwordLogin);
+      } else {
+        await signInWithEmailAndPassword(auth, emailLogin, passwordLogin);
+      }
+    } catch (err: any) {
+      alert('Fel vid inloggning: ' + err.message);
+    }
+  };
+
   if (!currentUser) {
     return (
       <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
@@ -598,11 +622,95 @@ function App() {
           
           <button 
             className="btn btn-primary" 
-            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}
+            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '20px' }}
             onClick={() => signInWithPopup(auth, googleProvider).catch(err => alert(err.message))}
           >
             Logga in med Google
           </button>
+
+          <div style={{ margin: '20px 0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}></div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '15px' }}>Eller med E-post (För Apple-användare)</p>
+
+          <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <input 
+              type="email" 
+              className="input" 
+              placeholder="E-postadress" 
+              value={emailLogin} 
+              onChange={e => setEmailLogin(e.target.value)} 
+              required 
+            />
+            <input 
+              type="password" 
+              className="input" 
+              placeholder="Lösenord" 
+              value={passwordLogin} 
+              onChange={e => setPasswordLogin(e.target.value)} 
+              required 
+            />
+            <button type="submit" className="btn btn-secondary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+              {isSignUpMode ? 'Registrera konto' : 'Logga in'}
+            </button>
+          </form>
+
+          <p style={{ marginTop: '15px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+            {isSignUpMode ? 'Har du redan ett konto? ' : 'Inget konto? '}
+            <span 
+              style={{ color: 'var(--color-primary)', cursor: 'pointer', textDecoration: 'underline' }}
+              onClick={() => setIsSignUpMode(!isSignUpMode)}
+            >
+              {isSignUpMode ? 'Logga in här' : 'Skapa konto här'}
+            </span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleSaveEditedUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      await firebaseService.saveUser(editingUser);
+      setShowEditUserModal(false);
+      triggerToast('Användare uppdaterad', 'success');
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleSavePhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    if (phonePromptInput.trim().length < 5) {
+      alert('Ange ett giltigt telefonnummer');
+      return;
+    }
+    const updatedUser = { ...currentUser, phone: phonePromptInput.trim() };
+    await firebaseService.saveUser(updatedUser);
+  };
+
+  if (currentUser && !currentUser.phone) {
+    return (
+      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
+        <div className="card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', padding: '40px 20px' }}>
+          <h2 style={{ color: 'var(--text-main)', marginBottom: '15px' }}>Välkommen {currentUser.alias}!</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '25px', lineHeight: '1.5' }}>
+            För att Swish-funktionen ska fungera korrekt behöver du ange ditt telefonnummer (det nummer som är kopplat till din Swish).
+          </p>
+          <form onSubmit={handleSavePhone} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <input 
+              type="tel" 
+              className="input" 
+              placeholder="Ex: 0701234567" 
+              value={phonePromptInput} 
+              onChange={e => setPhonePromptInput(e.target.value)} 
+              required 
+            />
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+              Spara telefonnummer
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -741,21 +849,27 @@ function App() {
           <>
             <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2>Dina Resor</h2>
-              <button className="btn btn-primary btn-sm" onClick={() => setShowAddTripModal(true)}>
-                <Plus size={16} /> Ny resa
-              </button>
+              {currentUser.role !== 'user' && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowAddTripModal(true)}>
+                  <Plus size={16} /> Ny resa
+                </button>
+              )}
             </div>
 
             {trips.length === 0 ? (
               <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <p>Du har inga aktiva resor just nu.</p>
-                <button 
-                  className="btn btn-primary" 
-                  onClick={() => setShowAddTripModal(true)}
-                  style={{ marginTop: '16px' }}
-                >
-                  Skapa din första resa
-                </button>
+                {currentUser.role !== 'user' ? (
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => setShowAddTripModal(true)}
+                    style={{ marginTop: '16px' }}
+                  >
+                    Skapa din första resa
+                  </button>
+                ) : (
+                  <p style={{ marginTop: '16px', fontSize: '14px' }}>Be en kompis bjuda in dig till en resa!</p>
+                )}
               </div>
             ) : (
               <div className="trips-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1104,7 +1218,11 @@ function App() {
                       </button>
                       <button 
                         className="btn btn-swish btn-sm"
-                        onClick={() => setShowSwishModal(settlement)}
+                        onClick={() => {
+                          const receiver = allUsers.find(u => u.uid === settlement.to);
+                          setSwishPhoneInput(receiver?.phone || '');
+                          setShowSwishModal(settlement);
+                        }}
                       >
                         Swish / QR
                       </button>
@@ -1249,15 +1367,24 @@ function App() {
                           </div>
                         </div>
 
-                        {u.uid !== 'USER_MAGNUS' && (
+                        <div style={{ display: 'flex', gap: '8px' }}>
                           <button 
-                            className="btn btn-danger btn-sm" 
+                            className="btn btn-secondary btn-sm" 
                             style={{ padding: '4px 8px' }}
-                            onClick={() => handleKickUser(u.uid)}
+                            onClick={() => { setEditingUser(u); setShowEditUserModal(true); }}
                           >
-                            Kasta ut
+                            Redigera
                           </button>
-                        )}
+                          {u.uid !== 'USER_MAGNUS' && u.role !== 'superadmin' && (
+                            <button 
+                              className="btn btn-danger btn-sm" 
+                              style={{ padding: '4px 8px' }}
+                              onClick={() => handleKickUser(u.uid)}
+                            >
+                              Kasta ut
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1317,7 +1444,7 @@ function App() {
           </>
         )}
 
-        {currentUser.role === 'admin' && (
+        {currentUser.role === 'superadmin' && (
           <button 
             className={`nav-tab ${activeTab === 'admin' ? 'active' : ''}`}
             onClick={() => setActiveTab('admin')}
@@ -1327,6 +1454,52 @@ function App() {
           </button>
         )}
       </footer>
+
+      {/* --- MODAL: EDIT USER --- */}
+      {showEditUserModal && editingUser && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Redigera Användare</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowEditUserModal(false)}>Avbryt</button>
+            </div>
+            <form onSubmit={handleSaveEditedUser} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Alias / Namn</label>
+                <input 
+                  type="text" 
+                  className="input" 
+                  value={editingUser.alias} 
+                  onChange={e => setEditingUser({ ...editingUser, alias: e.target.value })} 
+                  required 
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Telefonnummer (För Swish)</label>
+                <input 
+                  type="tel" 
+                  className="input" 
+                  value={editingUser.phone || ''} 
+                  onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })} 
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Roll</label>
+                <select 
+                  className="input" 
+                  value={editingUser.role} 
+                  onChange={e => setEditingUser({ ...editingUser, role: e.target.value as any })}
+                >
+                  <option value="user">Användare (Deltagare)</option>
+                  <option value="admin">Admin (Skapa resor)</option>
+                  <option value="superadmin">Superadmin (System)</option>
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary">Spara ändringar</button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL: CREATE TRIP --- */}
       {showAddTripModal && (
@@ -1624,9 +1797,21 @@ function App() {
                 {showSwishModal.amount} {activeTrip.currency}
               </div>
 
+              <div style={{ width: '100%', marginTop: '15px' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Mottagarens Swish-nummer</label>
+                <input 
+                  type="tel" 
+                  className="input" 
+                  style={{ textAlign: 'center', fontWeight: 'bold' }}
+                  value={swishPhoneInput}
+                  onChange={e => setSwishPhoneInput(e.target.value)}
+                  placeholder="Ex: 0701234567"
+                />
+              </div>
+
               <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block', margin: '20px 0' }}>
                 <QRCodeComponent 
-                  value={`swish://payment?data=${JSON.stringify({ version: 1, payee: { value: '0701234567' }, amount: { value: Math.round(showSwishModal.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})}`}
+                  value={`swish://payment?data=${JSON.stringify({ version: 1, payee: { value: swishPhoneInput }, amount: { value: Math.round(showSwishModal.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})}`}
                   size={200}
                 />
               </div>
@@ -1645,10 +1830,10 @@ function App() {
                 </button>
                 <a 
                   className="btn btn-swish" 
-                  style={{ flex: 1, textDecoration: 'none' }}
+                  style={{ flex: 1, textDecoration: 'none', opacity: swishPhoneInput ? 1 : 0.5, pointerEvents: swishPhoneInput ? 'auto' : 'none' }}
                   href={`swish://payment?data=${encodeURIComponent(JSON.stringify({
                     version: 1,
-                    payee: { value: '0701234567' },
+                    payee: { value: swishPhoneInput },
                     amount: { value: showSwishModal.amount },
                     message: { value: `Reglering: ${activeTrip.title}` }
                   }))}`}
