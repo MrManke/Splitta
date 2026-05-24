@@ -781,7 +781,7 @@ function App() {
                     storageService.getActivityLogs(activeTrip.trip_id).map(act => (
                       <div key={act.id} className="activity-item">
                         <div className="activity-item-content">
-                          <strong>{act.user_alias}</strong> {act.action}
+                          <strong>{formatName(act.user_alias)}</strong> {act.action}
                         </div>
                         <div className="activity-item-time">{new Date(act.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                       </div>

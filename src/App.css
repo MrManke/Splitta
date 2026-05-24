@@ -5,9 +5,9 @@
 }
 
 @keyframes pulse-glow {
-  0% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); }
-  50% { box-shadow: 0 0 25px rgba(168, 85, 247, 0.5); }
-  100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); }
+  0% { box-shadow: 0 0 10px var(--shadow-glow); }
+  50% { box-shadow: 0 0 25px var(--shadow-glow); }
+  100% { box-shadow: 0 0 10px var(--shadow-glow); }
 }
 
 .ocr-scanning-active {
@@ -15,6 +15,6 @@
 }
 
 .active-trip {
-  background: rgba(168, 85, 247, 0.05) !important;
-  border-color: rgba(168, 85, 247, 0.3) !important;
+  background: var(--bg-glow) !important;
+  border-color: var(--border-color-active) !important;
 }

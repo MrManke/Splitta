@@ -307,7 +307,7 @@ a:hover {
 
 .input-field:focus {
   border-color: var(--color-primary-light);
-  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+  box-shadow: 0 0 0 2px var(--border-color-active);
   background: rgba(12, 12, 20, 0.85);
 }
 
@@ -889,8 +889,8 @@ a:hover {
 
 .participant-chip.selected {
   border-color: var(--color-primary-light);
-  background: rgba(168, 85, 247, 0.1);
-  box-shadow: 0 0 8px rgba(168, 85, 247, 0.2);
+  background: var(--bg-glow);
+  box-shadow: 0 0 8px var(--border-color-active);
 }
 
 .participant-chip-avatar {
