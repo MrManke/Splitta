@@ -9,31 +9,49 @@ export const ocrService = {
     let rawText = '';
 
     if (navigator.onLine) {
-      // ONLINE MODE: Azure AI Vision via Azure Function
+      // ONLINE MODE: Google Cloud Vision API
       try {
-        const azureFunctionUrl = import.meta.env.VITE_AZURE_OCR_FUNCTION_URL;
-        if (azureFunctionUrl) {
-          const formData = new FormData();
-          formData.append('image', file);
-          
-          const response = await fetch(azureFunctionUrl, {
+        const googleVisionKey = import.meta.env.VITE_GOOGLE_VISION_API_KEY;
+        if (googleVisionKey) {
+          // Convert file to base64
+          const base64Image = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+              const result = reader.result as string;
+              // Remove data URI prefix (e.g. "data:image/jpeg;base64,")
+              resolve(result.split(',')[1]);
+            };
+            reader.onerror = error => reject(error);
+          });
+
+          const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${googleVisionKey}`, {
             method: 'POST',
-            body: formData,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requests: [
+                {
+                  image: { content: base64Image },
+                  features: [{ type: 'TEXT_DETECTION' }]
+                }
+              ]
+            }),
           });
 
           if (response.ok) {
             const data = await response.json();
-            rawText = data.text || '';
+            const textAnnotations = data.responses?.[0]?.textAnnotations;
+            rawText = textAnnotations && textAnnotations.length > 0 ? textAnnotations[0].description : '';
           } else {
-            console.warn('Azure OCR failed, falling back to Tesseract');
+            console.warn('Google Cloud Vision failed, falling back to Tesseract');
             rawText = await this.runTesseractOffline(file);
           }
         } else {
-          // No Azure URL configured, use offline as fallback
+          // No API key configured, use offline as fallback
           rawText = await this.runTesseractOffline(file);
         }
       } catch (err) {
-        console.error('Network error calling Azure OCR, falling back to Tesseract', err);
+        console.error('Network error calling Google Vision OCR, falling back to Tesseract', err);
         rawText = await this.runTesseractOffline(file);
       }
     } else {
