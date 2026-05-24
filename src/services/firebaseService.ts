@@ -4,7 +4,6 @@ import type { Trip, User, Expense, Comment, AlbumPhoto, ActivityLog } from './st
 
 const TRIPS_COLLECTION = 'trips';
 const USERS_COLLECTION = 'users';
-const ACTIVITIES_COLLECTION = 'activities';
 
 export const firebaseService = {
   // --- USERS ---

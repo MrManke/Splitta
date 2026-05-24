@@ -100,7 +100,6 @@ export const ocrService = {
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     
     let candidateAmounts: number[] = [];
-    let keywordFound = false;
 
     // Helper to extract all valid currency amounts from a string
     const extractAmounts = (str: string): number[] => {
@@ -117,7 +116,6 @@ export const ocrService = {
       const hasKeyword = keywords.some(kw => line.includes(kw));
       
       if (hasKeyword) {
-        keywordFound = true;
         // Check amounts on the SAME line
         candidateAmounts.push(...extractAmounts(line));
         
