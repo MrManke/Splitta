@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import type { Trip, User, Expense, Comment, AlbumPhoto, ActivityLog } from './storageService';
 
 const TRIPS_COLLECTION = 'trips';
@@ -15,6 +15,22 @@ export const firebaseService = {
     const docSnap = await getDoc(doc(db, USERS_COLLECTION, uid));
     if (docSnap.exists()) {
       return docSnap.data() as User;
+    }
+    return null;
+  },
+
+  async getUserByEmail(email: string): Promise<User | null> {
+    // First try exact 'email' field match
+    const q1 = query(collection(db, USERS_COLLECTION), where('email', '==', email));
+    const snap1 = await getDocs(q1);
+    if (!snap1.empty) {
+      return snap1.docs[0].data() as User;
+    }
+    // Then try 'emails' array-contains match
+    const q2 = query(collection(db, USERS_COLLECTION), where('emails', 'array-contains', email));
+    const snap2 = await getDocs(q2);
+    if (!snap2.empty) {
+      return snap2.docs[0].data() as User;
     }
     return null;
   },

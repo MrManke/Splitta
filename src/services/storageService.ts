@@ -6,6 +6,7 @@ export interface User {
   alias: string;
   role: 'superadmin' | 'admin' | 'user';
   phone?: string;
+  emails?: string[]; // All linked email addresses
 }
 
 export interface Participant {

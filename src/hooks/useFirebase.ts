@@ -22,6 +22,22 @@ export function useFirebase() {
         let userDoc = await firebaseService.getUser(firebaseUser.uid);
         const isSuperAdmin = firebaseUser.email === 'magnus.ohlund@outlook.com' || firebaseUser.email === 'magnus.ohlund74@gmail.com';
 
+        // If no direct UID match, try finding by email in any user's emails array
+        if (!userDoc && firebaseUser.email) {
+          userDoc = await firebaseService.getUserByEmail(firebaseUser.email);
+          if (userDoc) {
+            // Link Firebase Auth UID to existing user doc
+            userDoc.uid = firebaseUser.uid;
+            if (!userDoc.emails) {
+              userDoc.emails = [userDoc.email];
+            }
+            if (!userDoc.emails.includes(firebaseUser.email)) {
+              userDoc.emails.push(firebaseUser.email);
+            }
+            await firebaseService.saveUser(userDoc);
+          }
+        }
+
         if (!userDoc) {
           // Create user document if it doesn't exist
           userDoc = {
@@ -29,6 +45,7 @@ export function useFirebase() {
             email: firebaseUser.email || '',
             alias: isSuperAdmin ? 'Ölle' : (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Användare'),
             role: isSuperAdmin ? 'superadmin' : 'user',
+            emails: firebaseUser.email ? [firebaseUser.email] : [],
           };
           await firebaseService.saveUser(userDoc);
         } else if (isSuperAdmin && (userDoc.alias !== 'Ölle' || userDoc.role !== 'superadmin')) {

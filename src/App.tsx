@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { firebaseService } from './services/firebaseService';
 import { useFirebase } from './hooks/useFirebase';
-import { signInWithPopup, googleProvider, auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword } from './services/firebase';
+import { signInWithPopup, googleProvider, auth, db, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from './services/firebase';
 import { disableNetwork, enableNetwork } from 'firebase/firestore';
 import { storageService, type Trip, type User } from './services/storageService';
 import { ocrService } from './services/ocrService';
@@ -108,8 +108,7 @@ function App() {
 
   // Form Inputs - Auth & Profile
   const [emailLogin, setEmailLogin] = useState('');
-  const [passwordLogin, setPasswordLogin] = useState('');
-  const [isSignUpMode, setIsSignUpMode] = useState(false);
+  const [emailLinkSent, setEmailLinkSent] = useState(false);
   const [phonePromptInput, setPhonePromptInput] = useState('');
 
   // Refs for uploading files
@@ -132,6 +131,28 @@ function App() {
     }
     localStorage.setItem('OlleSplit_Theme', theme);
   }, [theme]);
+
+  // Magic Link handler
+  useEffect(() => {
+    if (isSignInWithEmailLink(auth, window.location.href)) {
+      let email = window.localStorage.getItem('emailForSignIn');
+      if (!email) {
+        email = window.prompt('Vänligen bekräfta din e-postadress för inloggning:');
+      }
+      if (email) {
+        signInWithEmailLink(auth, email, window.location.href)
+          .then(() => {
+            window.localStorage.removeItem('emailForSignIn');
+            // Remove the link query params from URL so it's clean
+            window.history.replaceState(null, '', window.location.pathname);
+          })
+          .catch((error) => {
+            console.error('Error signing in with email link', error);
+            alert('Länken är antingen ogiltig eller har redan använts.');
+          });
+      }
+    }
+  }, []);
 
   // Show auto-fading toasts
   const triggerToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -383,6 +404,30 @@ function App() {
     }
   };
 
+  const handleMarkAsPaid = async (settlement: { from: string; fromName: string; to: string; toName: string; amount: number }) => {
+    if (!activeTrip || !currentUser) return;
+    if (!confirm(`Markera betalning: ${formatName(settlement.fromName)} betalar ${settlement.amount} ${activeTrip.currency} till ${formatName(settlement.toName)}?`)) return;
+    
+    try {
+      const splits: { [id: string]: number } = {};
+      splits[settlement.to] = 100; // Only the receiver "owes" this amount
+      
+      await firebaseService.addExpense(
+        activeTrip,
+        `Betalning: ${formatName(settlement.fromName)} -> ${formatName(settlement.toName)}`,
+        settlement.amount,
+        settlement.from,  // The debtor "paid"
+        'percentage',
+        splits,
+        currentUser,
+        'Automatisk reglering via Markera som betald'
+      );
+      triggerToast(`Betalning registrerad! Skulden ar reglerad.`);
+    } catch (err: any) {
+      triggerToast('Kunde inte registrera betalning: ' + err.message, 'error');
+    }
+  };
+
   const handleAddComment = (e: React.FormEvent, expenseId: string) => {
     e.preventDefault();
     if (!activeTrip) return;
@@ -491,36 +536,45 @@ function App() {
     const settlements = storageService.calculateSettlements(activeTrip);
     
     if (['text', 'whatsapp', 'email'].includes(shareFormat)) {
-      let text = `Resa: ${activeTrip.title}\n`;
-      text += `Totalt utlagt: ${activeTrip.total_cost} ${activeTrip.currency}\n\n`;
+      const isWA = shareFormat === 'whatsapp';
+      const b_ = isWA ? '*' : '';  // bold markers for WhatsApp
+      const lines: string[] = [];
+      
+      lines.push(`${b_}${activeTrip.title}${b_}`);
+      lines.push(`Totalt utlagt: ${b_}${activeTrip.total_cost} ${activeTrip.currency}${b_}`);
+      lines.push('');
       
       if (shareLevel === 'all') {
-        text += `💰 Detaljerad Sammanställning:\n`;
+        lines.push(`${b_}Saldo per person${b_}`);
+        lines.push('');
         balances.forEach(b => {
-          text += `${formatName(b.name)}: ${b.balance > 0 ? '+' : ''}${b.balance} ${activeTrip.currency}\n`;
+          const sign = b.balance > 0 ? '+' : '';
+          lines.push(`${b_}${formatName(b.name)}${b_}: ${sign}${b.balance.toFixed(2)} ${activeTrip.currency}`);
           b.lineItems.forEach(li => {
-            text += `  - ${li.title}:`;
-            if (li.paidAmount > 0) text += ` +${li.paidAmount}`;
-            if (li.owedAmount > 0) text += ` -${li.owedAmount}`;
-            text += `\n`;
+            let detail = `  - ${li.title}:`;
+            if (li.paidAmount > 0) detail += ` +${li.paidAmount.toFixed(2)}`;
+            if (li.owedAmount > 0) detail += ` -${li.owedAmount.toFixed(2)}`;
+            lines.push(detail);
           });
+          lines.push('');
         });
-        text += `\n`;
       }
       
-      text += `🤝 Vem swishar vem?\n`;
+      lines.push(`${b_}Vem betalar vem?${b_}`);
       if (settlements.length === 0) {
-        text += `Alla är kvitt!\n`;
+        lines.push('Alla ar kvitt!');
       } else {
         settlements.forEach(s => {
-          text += `${formatName(s.fromName)} swishar ${s.amount} ${activeTrip.currency} till ${formatName(s.toName)}\n`;
+          lines.push(`${formatName(s.fromName)} -> ${formatName(s.toName)}: ${b_}${s.amount} ${activeTrip.currency}${b_}`);
         });
       }
+
+      const text = lines.join('\n');
 
       if (shareFormat === 'whatsapp') {
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
       } else if (shareFormat === 'email') {
-        window.open(`mailto:?subject=${encodeURIComponent(`Sammanställning: ${activeTrip.title}`)}&body=${encodeURIComponent(text)}`, '_blank');
+        window.open(`mailto:?subject=${encodeURIComponent(`Sammanstallning: ${activeTrip.title}`)}&body=${encodeURIComponent(text)}`, '_blank');
       } else {
         if (navigator.share) {
           navigator.share({
@@ -529,7 +583,7 @@ function App() {
           }).catch(console.error);
         } else {
           navigator.clipboard.writeText(text);
-          triggerToast('Sammanställning kopierad till urklipp!');
+          triggerToast('Sammanstallning kopierad till urklipp!');
         }
       }
       setShowShareModal(false);
@@ -598,13 +652,15 @@ function App() {
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (isSignUpMode) {
-        await createUserWithEmailAndPassword(auth, emailLogin, passwordLogin);
-      } else {
-        await signInWithEmailAndPassword(auth, emailLogin, passwordLogin);
-      }
+      const actionCodeSettings = {
+        url: window.location.origin,
+        handleCodeInApp: true,
+      };
+      await sendSignInLinkToEmail(auth, emailLogin, actionCodeSettings);
+      window.localStorage.setItem('emailForSignIn', emailLogin);
+      setEmailLinkSent(true);
     } catch (err: any) {
-      alert('Fel vid inloggning: ' + err.message);
+      alert('Fel vid utskick av länk: ' + err.message);
     }
   };
 
@@ -629,39 +685,31 @@ function App() {
           </button>
 
           <div style={{ margin: '20px 0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}></div>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '15px' }}>Eller med E-post (För Apple-användare)</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '15px' }}>Eller logga in utan lösenord</p>
 
-          <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input 
-              type="email" 
-              className="input" 
-              placeholder="E-postadress" 
-              value={emailLogin} 
-              onChange={e => setEmailLogin(e.target.value)} 
-              required 
-            />
-            <input 
-              type="password" 
-              className="input" 
-              placeholder="Lösenord" 
-              value={passwordLogin} 
-              onChange={e => setPasswordLogin(e.target.value)} 
-              required 
-            />
-            <button type="submit" className="btn btn-secondary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
-              {isSignUpMode ? 'Registrera konto' : 'Logga in'}
-            </button>
-          </form>
-
-          <p style={{ marginTop: '15px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-            {isSignUpMode ? 'Har du redan ett konto? ' : 'Inget konto? '}
-            <span 
-              style={{ color: 'var(--color-primary)', cursor: 'pointer', textDecoration: 'underline' }}
-              onClick={() => setIsSignUpMode(!isSignUpMode)}
-            >
-              {isSignUpMode ? 'Logga in här' : 'Skapa konto här'}
-            </span>
-          </p>
+          {emailLinkSent ? (
+            <div style={{ background: 'var(--bg-glow)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-primary)' }}>
+              <Check size={32} style={{ color: 'var(--color-primary)', margin: '0 auto 10px' }} />
+              <h3 style={{ marginBottom: '10px', color: 'var(--text-main)' }}>Kolla din mail!</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Vi har skickat en inloggningslänk till <strong>{emailLogin}</strong>. Klicka på länken i mailet för att logga in.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input 
+                type="email" 
+                className="input" 
+                placeholder="E-postadress" 
+                value={emailLogin} 
+                onChange={e => setEmailLogin(e.target.value)} 
+                required 
+              />
+              <button type="submit" className="btn btn-secondary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+                Skicka inloggningslänk
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -1226,6 +1274,14 @@ function App() {
                       >
                         Swish / QR
                       </button>
+                      <button 
+                        className="btn btn-sm"
+                        style={{ background: 'var(--color-success)', color: '#fff', border: 'none' }}
+                        onClick={() => handleMarkAsPaid(settlement)}
+                        title="Markera som betald"
+                      >
+                        <Check size={12} /> Betald
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1494,6 +1550,50 @@ function App() {
                   <option value="admin">Admin (Skapa resor)</option>
                   <option value="superadmin">Superadmin (System)</option>
                 </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Kopplade e-postadresser</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                  {(editingUser.emails || [editingUser.email]).map((em, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input 
+                        type="email" 
+                        className="input" 
+                        style={{ flex: 1 }}
+                        value={em} 
+                        onChange={e => {
+                          const updated = [...(editingUser.emails || [editingUser.email])];
+                          updated[i] = e.target.value;
+                          setEditingUser({ ...editingUser, emails: updated, email: updated[0] });
+                        }} 
+                      />
+                      {(editingUser.emails || [editingUser.email]).length > 1 && (
+                        <button 
+                          type="button" 
+                          className="btn btn-danger btn-sm" 
+                          style={{ padding: '4px 8px' }}
+                          onClick={() => {
+                            const updated = (editingUser.emails || [editingUser.email]).filter((_, j) => j !== i);
+                            setEditingUser({ ...editingUser, emails: updated, email: updated[0] });
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary btn-sm" 
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => {
+                      const emails = [...(editingUser.emails || [editingUser.email]), ''];
+                      setEditingUser({ ...editingUser, emails });
+                    }}
+                  >
+                    <Plus size={12} /> Lägg till e-post
+                  </button>
+                </div>
               </div>
               <button type="submit" className="btn btn-primary">Spara ändringar</button>
             </form>
