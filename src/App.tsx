@@ -4,7 +4,7 @@ import {
   Share2, Camera, Upload, Shield, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, ChevronUp, Check, Sparkles, Send
 } from 'lucide-react';
-import QRCode from 'qrcode';
+import QRCode from 'react-qr-code';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { storageService, type Trip, type User } from './services/storageService';
@@ -45,6 +45,7 @@ function App() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareFormat, setShareFormat] = useState<'text' | 'image' | 'pdf' | 'whatsapp' | 'email'>('whatsapp');
   const [shareLevel, setShareLevel] = useState<'summary' | 'all'>('all');
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   
   // Trip Dropdown state
   const [showTripDropdown, setShowTripDropdown] = useState(false);
@@ -119,31 +120,6 @@ function App() {
     }
     localStorage.setItem('OlleSplit_Theme', theme);
   }, [theme]);
-
-  // Handle Swish QR code canvas drawing
-  useEffect(() => {
-    if (showSwishModal && qrCanvasRef.current) {
-      const swishData = {
-        version: 1,
-        payee: { value: '0701234567' }, // Demo Swish phone number
-        amount: { value: showSwishModal.amount },
-        message: { value: `Reglering: ${activeTrip?.title || 'Resa'}` }
-      };
-      
-      const swishUrl = `swish://payment?data=${encodeURIComponent(JSON.stringify(swishData))}`;
-
-      QRCode.toCanvas(qrCanvasRef.current, swishUrl, {
-        width: 180,
-        margin: 2,
-        color: {
-          dark: '#0f0f15',
-          light: '#ffffff'
-        }
-      }, (error) => {
-        if (error) console.error('QR Generation failed:', error);
-      });
-    }
-  }, [showSwishModal, activeTrip]);
 
   // Show auto-fading toasts
   const triggerToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -395,14 +371,18 @@ function App() {
     triggerToast('Skannar kvitto offline med OCR...', 'success');
 
     try {
-      const ocrResult = await ocrService.scanReceipt(file);
+      const detectedAmount = await ocrService.processImage(file);
       setIsOcrScanning(false);
       
-      if (ocrResult.detectedAmount) {
-        setExpenseAmount(ocrResult.detectedAmount.toString());
-        triggerToast(`Hittade belopp: ${ocrResult.detectedAmount} kr! Kontrollera gärna.`, 'success');
+      if (detectedAmount !== null) {
+        if (expenseAmount && parseFloat(expenseAmount) !== detectedAmount) {
+          triggerToast(`Det skannade beloppet (${detectedAmount} kr) matchar inte det angivna beloppet (${expenseAmount} kr). Ändra manuellt vid behov.`, 'error');
+        } else {
+          setExpenseAmount(detectedAmount.toString());
+          triggerToast(`Hittade belopp: ${detectedAmount} kr! Kontrollera gärna.`, 'success');
+        }
       } else {
-        triggerToast('Hittade inget belopp på kvittot. Knappa in det manuellt!', 'error');
+        triggerToast('Hittade inget säkert belopp på kvittot. Knappa in det manuellt!', 'error');
       }
     } catch (err: any) {
       setIsOcrScanning(false);
@@ -775,10 +755,10 @@ function App() {
                   Realtidsaktivitet
                 </h3>
                 <div className="activity-feed">
-                  {storageService.getActivityLogs(activeTrip.trip_id).length === 0 ? (
+                  {storageService.getActivityLogs(activeTrip.trip_id, currentUser).length === 0 ? (
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Inga aktiviteter registrerade än.</p>
                   ) : (
-                    storageService.getActivityLogs(activeTrip.trip_id).map(act => (
+                    storageService.getActivityLogs(activeTrip.trip_id, currentUser).map(act => (
                       <div key={act.id} className="activity-item">
                         <div className="activity-item-content">
                           <strong>{formatName(act.user_alias)}</strong> {act.action}
@@ -1214,6 +1194,16 @@ function App() {
           </>
         )}
 
+        <div style={{ textAlign: 'center', marginTop: '40px', paddingBottom: '20px' }}>
+          <button 
+            className="btn btn-sm" 
+            style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', fontSize: '12px' }}
+            onClick={() => setShowPrivacyModal(true)}
+          >
+            Integritetspolicy
+          </button>
+        </div>
+
       </main>
 
       {/* --- APP FOOTER / BOTTOM NAV TABS --- */}
@@ -1561,8 +1551,11 @@ function App() {
                 {showSwishModal.amount} {activeTrip.currency}
               </div>
 
-              <div className="qr-canvas-container">
-                <canvas ref={qrCanvasRef}></canvas>
+              <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block', margin: '20px 0' }}>
+                <QRCode 
+                  value={`swish://payment?data=${JSON.stringify({ version: 1, payee: { value: '0701234567' }, amount: { value: Math.round(showSwishModal.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})}`}
+                  size={200}
+                />
               </div>
 
               <p style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '280px' }}>
@@ -1732,6 +1725,29 @@ function App() {
         </div>
       )}
 
+      {/* --- MODAL: PRIVACY POLICY --- */}
+      {showPrivacyModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Integritetspolicy</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowPrivacyModal(false)}>Stäng</button>
+            </div>
+            <div style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
+              <p><strong>Ölle-Split</strong> värnar om din personliga integritet.</p>
+              <br/>
+              <p>1. <strong>Datan lagras säkert:</strong> All information om dina resor, utlägg och de telefonnummer du anger lagras lokalt i din enhet tills vi lanserar molnstödet. När molnstöd aktiveras kommer data att sparas i Google Firebase och skyddas bakom inloggning.</p>
+              <br/>
+              <p>2. <strong>Telefonnummer & Swish:</strong> De telefonnummer du anger används uteslutande för att generera en lokal Swish-QR-kod och förifylla din Swish-app. De skickas aldrig till tredjepartstjänster för marknadsföring eller analys.</p>
+              <br/>
+              <p>3. <strong>Analys & Spårning:</strong> Appen spårar ej ditt beteende eller din exakta plats. Vi använder endast nödvändig lokal lagring för att appen ska fungera.</p>
+              <br/>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }} onClick={() => setShowPrivacyModal(false)}>Jag förstår</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- HIDDEN EXPORT VIEW FOR HTML2CANVAS --- */}
       {activeTrip && (
         <div 
@@ -1799,8 +1815,8 @@ function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {activeTripSettlements.map((s, idx) => {
                 const payeePhone = allUsers.find(u => u.uid === s.to || u.alias === s.toName)?.phone || '0701234567';
-                const swishData = JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: s.amount }, message: { value: `Splitta: ${activeTrip.title}` }});
-                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent('swish://payment?data=' + swishData)}`;
+                const swishData = JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }});
+                const swishUrl = `swish://payment?data=${swishData}`;
                 return (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div>
@@ -1811,8 +1827,8 @@ function App() {
                         {s.amount} {activeTrip.currency}
                       </div>
                     </div>
-                    <div>
-                      <img src={qrUrl} alt="Swish QR" style={{ width: '120px', height: '120px', borderRadius: '8px', background: '#fff', padding: '5px' }} crossOrigin="anonymous" />
+                    <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
+                      <QRCode value={swishUrl} size={120} />
                     </div>
                   </div>
                 );

@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Function to check if user is logged in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Function to check if user is admin
+    // Assuming we either set custom claims or trust the client role for now 
+    // In a production app, custom claims request.auth.token.admin == true should be used.
+    function isAdmin() {
+      return request.auth.token.email == 'magnus.ohlund@outlook' || 
+             request.auth.token.email == 'magnus.ohlund74@gmail.com';
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if request.auth.uid == userId || isAdmin();
+    }
+
+    match /trips/{tripId} {
+      // You can read the trip if you are an admin, or if your uid is in the participants array.
+      // Since participants is an array of objects in our current model, it might be easier
+      // to also have an array of simple string UIDs in the trip document, e.g., 'participant_uids'.
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid in resource.data.participant_uids);
+      allow create: if isAuthenticated();
+      // Only admins or people in the trip can update
+      allow update: if isAuthenticated() && (isAdmin() || request.auth.uid in resource.data.participant_uids);
+      // Only admins can delete trips
+      allow delete: if isAdmin();
+    }
+
+    match /activities/{activityId} {
+      allow read: if isAuthenticated(); // Could be locked down further
+      allow create: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+  }
+}

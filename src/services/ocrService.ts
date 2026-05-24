@@ -1,146 +1,141 @@
-import { createWorker } from 'tesseract.js';
+import Tesseract from 'tesseract.js';
 
-export interface OcrResult {
-  text: string;
-  detectedAmount?: number;
-  allNumbers: number[];
-}
-
-/**
- * Service to handle client-side OCR parsing of receipt images using Tesseract.js.
- * Runs completely locally in the browser!
- */
-class OcrService {
+export const ocrService = {
   /**
-   * Scans a receipt image and extracts the total amount.
-   * @param imageSrc base64 string, image URL, or File object
-   * @param onProgress callback to report progress percentage (0-100)
+   * Main function to process an image and extract the total amount.
+   * Uses Hybrid OCR: Azure (Online) or Tesseract (Offline).
    */
-  async scanReceipt(
-    imageSrc: string | File
-  ): Promise<OcrResult> {
-    try {
-      // 1. Create Tesseract worker
-      const worker = await createWorker('swe+eng');
-      
-      // 2. Set progress listener if provided
-      // Wait, let's see. In tesseract.js newer versions, we can set progress or let it run.
-      // We will do a simple progress simulation or listener. Tesseract.js worker does emit progress events.
-      
-      // 3. Perform OCR
-      const ret = await worker.recognize(imageSrc);
-      const text = ret.data.text;
-      
-      // 4. Terminate worker to free memory
-      await worker.terminate();
+  async processImage(file: File): Promise<number | null> {
+    let rawText = '';
 
-      // 5. Parse amounts from text using smart heuristics
-      const { detectedAmount, allNumbers } = this.parseAmountsFromText(text);
+    if (navigator.onLine) {
+      // ONLINE MODE: Azure AI Vision via Azure Function
+      try {
+        const azureFunctionUrl = import.meta.env.VITE_AZURE_OCR_FUNCTION_URL;
+        if (azureFunctionUrl) {
+          const formData = new FormData();
+          formData.append('image', file);
+          
+          const response = await fetch(azureFunctionUrl, {
+            method: 'POST',
+            body: formData,
+          });
 
-      return {
-        text,
-        detectedAmount,
-        allNumbers
-      };
-    } catch (error) {
-      console.error('OCR Error:', error);
-      throw new Error('Misslyckades att tolka bilden. Kontrollera att det är en giltig bild.');
+          if (response.ok) {
+            const data = await response.json();
+            rawText = data.text || '';
+          } else {
+            console.warn('Azure OCR failed, falling back to Tesseract');
+            rawText = await this.runTesseractOffline(file);
+          }
+        } else {
+          // No Azure URL configured, use offline as fallback
+          rawText = await this.runTesseractOffline(file);
+        }
+      } catch (err) {
+        console.error('Network error calling Azure OCR, falling back to Tesseract', err);
+        rawText = await this.runTesseractOffline(file);
+      }
+    } else {
+      // OFFLINE MODE: Tesseract.js
+      rawText = await this.runTesseractOffline(file);
     }
-  }
+
+    return this.parseReceiptTotal(rawText);
+  },
 
   /**
-   * Parses Swedish and international receipt texts to find totals.
+   * Offline Tesseract execution
    */
-  private parseAmountsFromText(text: string): { detectedAmount?: number; allNumbers: number[] } {
-    const lines = text.split('\n');
-    const allNumbers: number[] = [];
-    let detectedAmount: number | undefined = undefined;
+  async runTesseractOffline(file: File): Promise<string> {
+    try {
+      const result = await Tesseract.recognize(file, 'swe+eng');
+      return result.data.text;
+    } catch (err) {
+      console.error('Tesseract OCR Error:', err);
+      return '';
+    }
+  },
 
-    // Regular expression to match standard money amounts: e.g. "1 250,50", "450.00", "99:-", "159,00"
-    // Clean spaces inside numbers and format decimal separators
-    const moneyRegex = /(\d+[\s\.]?\d*[\,\.][\-0-9]{2})|(\d+[\s]?\d*[\s]?\:\-)/g;
+  /**
+   * Regex-based parsing algorithm to extract the total sum.
+   * Heuristics: Proximity and Last-Value principles.
+   */
+  parseReceiptTotal(rawText: string): number | null {
+    if (!rawText) return null;
+
+    // STEP A: Normalization
+    let text = rawText.toLowerCase();
     
-    // Keywords representing totals in Swedish receipts
-    const totalKeywords = [
-      'totalt',
-      'total',
-      'att betala',
-      'summa',
-      'belopp',
-      'grand total',
-      'kort',
-      'subtotal'
-    ];
+    // Normalize decimals: replace common mistakes like ',' with '.'
+    // We try to find numbers with 2 decimals like 123,45 or 123.45 and ensure they use '.'
+    // It's safer to just rely on regex capturing later.
 
-    // Helper to clean a number string and parse it as a float
-    const cleanAndParseNumber = (str: string): number | null => {
-      // Remove trailing ":-" (classic Swedish price tag)
-      let cleaned = str.replace(':-', '.00');
-      // Replace comma with dot
-      cleaned = cleaned.replace(',', '.');
-      // Remove non-numeric characters except dots and minus
-      cleaned = cleaned.replace(/[^0-9\.]/g, '');
-      
-      const num = parseFloat(cleaned);
-      return isNaN(num) ? null : num;
+    // Remove noise like common Swedish org numbers (xxxxxx-xxxx)
+    text = text.replace(/\d{6}-\d{4}/g, '');
+    
+    // Remove dates (YYYY-MM-DD or YY-MM-DD)
+    text = text.replace(/\d{2,4}-\d{2}-\d{2}/g, '');
+
+    // STEP B: Keyword matching
+    const keywords = ['total', 'att betala', 'summa', 'belopp', 'sek', 'eur', 'totalt'];
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    let candidateAmounts: number[] = [];
+    let keywordFound = false;
+
+    // Helper to extract all valid currency amounts from a string
+    const extractAmounts = (str: string): number[] => {
+      // Matches 123.45, 123,45, 123.00, etc.
+      const regex = /\b\d+[\.,]\d{2}\b/g;
+      const matches = str.match(regex);
+      if (!matches) return [];
+      return matches.map(m => parseFloat(m.replace(',', '.')));
     };
 
-    // Scan lines for totals
+    // STEP C: Filtering (Proximity Principle)
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].toLowerCase();
+      const line = lines[i];
+      const hasKeyword = keywords.some(kw => line.includes(kw));
       
-      // Look for money patterns in this line
-      const matches = line.match(moneyRegex);
-      if (matches) {
-        matches.forEach(m => {
-          const val = cleanAndParseNumber(m);
-          if (val !== null && val > 0 && val < 50000) { // Limit to reasonable receipt values
-            allNumbers.push(val);
-          }
-        });
-      }
-
-      // Check if line contains a total keyword
-      const containsKeyword = totalKeywords.some(keyword => line.includes(keyword));
-      if (containsKeyword) {
-        // Look for the closest number in this line or the next line
-        const numbersInLine = line.match(/(\d+[\,\.]\d{2})|(\d+\:\-)/g);
-        if (numbersInLine && numbersInLine.length > 0) {
-          const val = cleanAndParseNumber(numbersInLine[numbersInLine.length - 1]);
-          if (val !== null && val > 0) {
-            detectedAmount = val;
-          }
-        } else if (i + 1 < lines.length) {
-          // Check the next line (often totals are placed on the line below the keyword)
-          const nextLine = lines[i + 1].trim();
-          const numbersInNext = nextLine.match(/(\d+[\,\.]\d{2})|(\d+\:\-)/g);
-          if (numbersInNext && numbersInNext.length > 0) {
-            const val = cleanAndParseNumber(numbersInNext[0]);
-            if (val !== null && val > 0) {
-              detectedAmount = val;
-            }
-          }
+      if (hasKeyword) {
+        keywordFound = true;
+        // Check amounts on the SAME line
+        candidateAmounts.push(...extractAmounts(line));
+        
+        // Check amounts on the NEXT line (often totals are printed on the next line)
+        if (i + 1 < lines.length) {
+          candidateAmounts.push(...extractAmounts(lines[i + 1]));
         }
       }
-
-      // If we haven't found a keyword total, but we find "moms" or similar VAT tables,
-      // the absolute maximum number in the receipt is usually the final total.
     }
 
-    // Heuristic: If we found no keyword-associated total, grab the largest number that appears in the lower half of the receipt.
-    if (!detectedAmount && allNumbers.length > 0) {
-      // Filter out insanely large numbers or year-like numbers (e.g. 2026)
-      const filtered = allNumbers.filter(n => n !== 2026 && n !== 2025 && n < 30000);
-      if (filtered.length > 0) {
-        detectedAmount = Math.max(...filtered);
+    // Filter out candidates that are 0
+    candidateAmounts = candidateAmounts.filter(a => a > 0);
+
+    if (candidateAmounts.length > 0) {
+      // Highest reasonable amount principle
+      return Math.max(...candidateAmounts);
+    }
+
+    // STEP C2: Last-Value Principle
+    // If no keyword was found or no amounts near keywords, we look at ALL amounts in the receipt.
+    // The total is almost always the highest number at the bottom of the receipt.
+    let allAmounts: number[] = [];
+    lines.forEach(line => {
+      // Exclude lines with "moms" or "kvar" if we are blindly grabbing the last value
+      if (!line.includes('moms') && !line.includes('kvar')) {
+        allAmounts.push(...extractAmounts(line));
       }
+    });
+
+    if (allAmounts.length > 0) {
+      // The last few amounts on a receipt are usually Total, Cash, Change.
+      // We take the max of the last 3 amounts found.
+      const lastFew = allAmounts.slice(-3);
+      return Math.max(...lastFew);
     }
 
-    return {
-      detectedAmount,
-      allNumbers: Array.from(new Set(allNumbers)) // unique values
-    };
+    return null;
   }
-}
-
-export const ocrService = new OcrService();
+};

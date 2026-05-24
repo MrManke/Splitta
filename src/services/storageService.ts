@@ -71,6 +71,7 @@ export interface ActivityLog {
   trip_id: string;
   user_alias: string;
   action: string; // e.g. "lade till utlägget 'Stugahyra' - 4500 kr"
+  involved_uids?: string[];
   created_at: string;
 }
 
@@ -404,7 +405,8 @@ class StorageService {
     localStorage.setItem(KEYS.TRIPS, JSON.stringify(trips));
     
     // Log Activity
-    this.logActivity(trip_id, currentUser.alias, `lade till utlägget "${title}" - ${amount} ${trips[tripIndex].currency}`);
+    const involved = [...new Set([paid_by, ...splits.filter(s => s.amount > 0).map(s => s.user_id)])];
+    this.logActivity(trip_id, currentUser.alias, `lade till utlägget "${title}" - ${amount} ${trips[tripIndex].currency}`, involved);
     this.notify();
     
     return { success: true };
@@ -452,7 +454,8 @@ class StorageService {
     localStorage.setItem(KEYS.TRIPS, JSON.stringify(trips));
     
     // Log Activity
-    this.logActivity(trip_id, currentUser.alias, `uppdaterade utlägget "${title}" - ${amount} ${trips[tripIndex].currency}`);
+    const involved = [...new Set([paid_by, ...splits.filter(s => s.amount > 0).map(s => s.user_id)])];
+    this.logActivity(trip_id, currentUser.alias, `uppdaterade utlägget "${title}" - ${amount} ${trips[tripIndex].currency}`, involved);
     this.notify();
     
     return { success: true };
@@ -476,7 +479,8 @@ class StorageService {
 
     localStorage.setItem(KEYS.TRIPS, JSON.stringify(trips));
 
-    this.logActivity(trip_id, currentUser.alias, `tog bort utlägget "${expense.title}" - ${expense.amount} ${trips[tripIndex].currency}`);
+    const involved = [...new Set([expense.paid_by, ...expense.splits.filter(s => s.amount > 0).map(s => s.user_id)])];
+    this.logActivity(trip_id, currentUser.alias, `tog bort utlägget "${expense.title}" - ${expense.amount} ${trips[tripIndex].currency}`, involved);
     this.notify();
 
     return { success: true };
@@ -536,20 +540,27 @@ class StorageService {
   }
 
   // --- ACTIVITIES ---
-  getActivityLogs(trip_id: string): ActivityLog[] {
+  getActivityLogs(trip_id: string, currentUser: User): ActivityLog[] {
     const allActivities: ActivityLog[] = JSON.parse(localStorage.getItem(KEYS.ACTIVITIES) || '[]');
     return allActivities
       .filter(a => a.trip_id === trip_id)
+      .filter(a => {
+        if (currentUser.role === 'admin') return true;
+        if (a.user_alias === currentUser.alias) return true;
+        if (!a.involved_uids || a.involved_uids.length === 0) return true; // General activities
+        return a.involved_uids.includes(currentUser.uid);
+      })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  private logActivity(trip_id: string, user_alias: string, action: string) {
+  private logActivity(trip_id: string, user_alias: string, action: string, involved_uids: string[] = []) {
     const activities: ActivityLog[] = JSON.parse(localStorage.getItem(KEYS.ACTIVITIES) || '[]');
     activities.push({
       id: 'ACT_' + Math.random().toString(36).substr(2, 9).toUpperCase(),
       trip_id,
       user_alias,
       action,
+      involved_uids,
       created_at: new Date().toISOString()
     });
     localStorage.setItem(KEYS.ACTIVITIES, JSON.stringify(activities));
