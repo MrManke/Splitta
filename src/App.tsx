@@ -43,8 +43,11 @@ function App() {
   const [showSwishModal, setShowSwishModal] = useState<{ from: string; fromName: string; to: string; toName: string; amount: number } | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareFormat, setShareFormat] = useState<'text' | 'pdf' | 'image'>('text');
-  const [shareLevel, setShareLevel] = useState<'all' | 'summary'>('summary');
+  const [shareFormat, setShareFormat] = useState<'text' | 'image' | 'pdf' | 'whatsapp' | 'email'>('whatsapp');
+  const [shareLevel, setShareLevel] = useState<'summary' | 'all'>('all');
+  
+  // Trip Dropdown state
+  const [showTripDropdown, setShowTripDropdown] = useState(false);
 
   // Form Inputs - Trip
   const [newTripTitle, setNewTripTitle] = useState('');
@@ -634,28 +637,48 @@ function App() {
               <h2 style={{ fontSize: '18px', margin: 0, color: '#fff' }}>{activeTrip.title}</h2>
             </div>
             <div style={{ position: 'relative' }}>
-              <select
-                value={activeTrip.trip_id}
-                onChange={(e) => {
-                  const t = trips.find(trip => trip.trip_id === e.target.value);
-                  if (t) setActiveTrip(t);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: 0, left: 0, right: 0, bottom: 0,
-                  opacity: 0, cursor: 'pointer', zIndex: 10
-                }}
-              >
-                {[...trips].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(t => (
-                  <option key={t.trip_id} value={t.trip_id}>{t.title}</option>
-                ))}
-              </select>
               <button 
                 className="btn btn-sm" 
-                style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none', position: 'relative', zIndex: 5 }}
+                style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none' }}
+                onClick={() => setShowTripDropdown(!showTripDropdown)}
               >
                 Byt Resa
               </button>
+              {showTripDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%', right: 0,
+                  marginTop: '8px',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-lg)',
+                  zIndex: 50,
+                  minWidth: '220px',
+                  overflow: 'hidden'
+                }}>
+                  {[...trips].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(t => (
+                    <div
+                      key={t.trip_id}
+                      onClick={() => { setActiveTrip(t); setShowTripDropdown(false); }}
+                      style={{
+                        padding: '12px 16px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-color)',
+                        background: activeTrip.trip_id === t.trip_id ? 'var(--bg-glow)' : 'transparent',
+                        color: 'var(--text-primary)'
+                      }}
+                      onMouseOver={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                      onMouseOut={e => e.currentTarget.style.background = activeTrip.trip_id === t.trip_id ? 'var(--bg-glow)' : 'transparent'}
+                    >
+                      <div style={{ fontSize: '14px', fontWeight: activeTrip.trip_id === t.trip_id ? 'bold' : 'normal', color: activeTrip.trip_id === t.trip_id ? 'var(--color-primary-light)' : 'var(--text-primary)' }}>
+                        {t.title}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Skapad {t.created_at.slice(0, 10)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -724,7 +747,7 @@ function App() {
                       key={p.id}
                       style={{
                         padding: '6px 12px',
-                        background: p.has_account ? 'rgba(168, 85, 247, 0.15)' : 'rgba(255,255,255,0.05)',
+                        background: p.has_account ? 'var(--bg-glow)' : 'rgba(255,255,255,0.05)',
                         border: '1px solid',
                         borderColor: p.has_account ? 'var(--color-primary-light)' : 'var(--border-color)',
                         borderRadius: 'var(--radius-full)',
