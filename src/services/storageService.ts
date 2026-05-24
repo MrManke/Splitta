@@ -400,6 +400,54 @@ class StorageService {
     return { success: true };
   }
 
+  updateExpense(
+    trip_id: string, 
+    expense_id: string,
+    title: string, 
+    amount: number, 
+    paid_by: string, 
+    split_type: 'equal' | 'percentage', 
+    splits: { [participantId: string]: number },
+    comment?: string,
+    receipt_url?: string
+  ): { success: boolean; error?: string } {
+    const trips = JSON.parse(localStorage.getItem(KEYS.TRIPS) || '[]') as Trip[];
+    const tripIndex = trips.findIndex(t => t.trip_id === trip_id);
+    
+    if (tripIndex === -1) return { success: false, error: 'Resan hittades inte!' };
+    
+    const currentUser = this.getLoggedInUser();
+    const expenseIndex = trips[tripIndex].expenses.findIndex(e => e.expense_id === expense_id);
+    
+    if (expenseIndex === -1) return { success: false, error: 'Utlägget hittades inte!' };
+
+    const oldExpense = trips[tripIndex].expenses[expenseIndex];
+
+    const updatedExpense: Expense = {
+      ...oldExpense,
+      title,
+      amount,
+      paid_by,
+      split_type,
+      splits,
+      comment,
+      receipt_url: receipt_url || oldExpense.receipt_url
+    };
+
+    trips[tripIndex].expenses[expenseIndex] = updatedExpense;
+    
+    // Recalculate rolling total
+    trips[tripIndex].total_cost = trips[tripIndex].expenses.reduce((sum, e) => sum + e.amount, 0);
+
+    localStorage.setItem(KEYS.TRIPS, JSON.stringify(trips));
+    
+    // Log Activity
+    this.logActivity(trip_id, currentUser.alias, `uppdaterade utlägget "${title}" - ${amount} ${trips[tripIndex].currency}`);
+    this.notify();
+    
+    return { success: true };
+  }
+
   deleteExpense(trip_id: string, expense_id: string): { success: boolean; error?: string } {
     const trips = JSON.parse(localStorage.getItem(KEYS.TRIPS) || '[]') as Trip[];
     const tripIndex = trips.findIndex(t => t.trip_id === trip_id);

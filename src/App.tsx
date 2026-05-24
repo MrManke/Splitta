@@ -25,6 +25,7 @@ function App() {
   // Modals
   const [showAddTripModal, setShowAddTripModal] = useState(false);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [showSwishModal, setShowSwishModal] = useState<{ from: string; fromName: string; to: string; toName: string; amount: number } | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -177,6 +178,7 @@ function App() {
       return;
     }
     
+    setEditingExpenseId(null);
     setExpensePayer(currentUser.uid);
     setExpenseTitle('');
     setExpenseAmount('');
@@ -187,6 +189,26 @@ function App() {
     const initialSplits: { [id: string]: number } = {};
     activeTrip.participants.forEach(p => {
       initialSplits[p.id] = 1;
+    });
+    setExpenseSplits(initialSplits);
+    setShowAddExpenseModal(true);
+  };
+
+  const handleOpenEditExpense = (exp: any) => {
+    if (!activeTrip) return;
+    
+    setEditingExpenseId(exp.expense_id);
+    setExpenseTitle(exp.title);
+    setExpenseAmount(exp.amount.toString());
+    setExpensePayer(exp.paid_by);
+    setExpenseSplitType(exp.split_type);
+    setExpenseComment(exp.comment || '');
+    setExpenseReceiptBase64(exp.receipt_url || '');
+    
+    const initialSplits: { [id: string]: number } = {};
+    activeTrip.participants.forEach(p => {
+      // In equal split, checked is splits[p.id] > 0
+      initialSplits[p.id] = exp.splits[p.id] || 0;
     });
     setExpenseSplits(initialSplits);
     setShowAddExpenseModal(true);
@@ -235,19 +257,32 @@ function App() {
       });
     }
 
-    const result = storageService.addExpense(
-      activeTrip.trip_id,
-      expenseTitle,
-      amountNum,
-      expensePayer,
-      expenseSplitType,
-      finalSplits,
-      expenseComment,
-      expenseReceiptBase64 || undefined
-    );
+    const result = editingExpenseId
+      ? storageService.updateExpense(
+          activeTrip.trip_id,
+          editingExpenseId,
+          expenseTitle,
+          amountNum,
+          expensePayer,
+          expenseSplitType,
+          finalSplits,
+          expenseComment,
+          expenseReceiptBase64 || undefined
+        )
+      : storageService.addExpense(
+          activeTrip.trip_id,
+          expenseTitle,
+          amountNum,
+          expensePayer,
+          expenseSplitType,
+          finalSplits,
+          expenseComment,
+          expenseReceiptBase64 || undefined
+        );
 
     if (result.success) {
-      triggerToast('Utlägget har registrerats!');
+      triggerToast(editingExpenseId ? 'Utlägget har uppdaterats!' : 'Utlägget har registrerats!');
+      setEditingExpenseId(null);
       setShowAddExpenseModal(false);
       setActiveTab('expenses');
     } else {
@@ -661,7 +696,13 @@ function App() {
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                            <button 
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleOpenEditExpense(exp)}
+                            >
+                              Ändra utlägg
+                            </button>
                             <button 
                               className="btn btn-danger btn-sm"
                               onClick={() => handleDeleteExpense(exp.expense_id, exp.title)}
@@ -1012,8 +1053,11 @@ function App() {
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="modal-header">
-              <h3>Registrera utlägg</h3>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowAddExpenseModal(false)}>Stäng</button>
+              <h3>{editingExpenseId ? 'Redigera utlägg' : 'Registrera utlägg'}</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => {
+                setShowAddExpenseModal(false);
+                setEditingExpenseId(null);
+              }}>Stäng</button>
             </div>
 
             {/* OCR upload box */}
@@ -1129,42 +1173,58 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Vilka ingår i splitten?</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
-                  {activeTrip.participants.map(p => {
-                    const isSelected = expenseSplits[p.id] > 0;
+                  {(() => {
+                    const parsedAmount = parseFloat(expenseAmount) || 0;
+                    const checkedCount = Object.keys(expenseSplits).filter(pId => expenseSplits[pId] > 0).length;
+                    const equalShare = checkedCount > 0 ? (parsedAmount / checkedCount) : 0;
                     
-                    return (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="checkbox-container">
-                          <input 
-                            type="checkbox" 
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (expenseSplitType === 'equal') {
-                                handleSplitChange(p.id, e.target.checked ? 1 : 0);
-                              } else {
-                                handleSplitChange(p.id, e.target.checked ? 25 : 0);
-                              }
-                            }}
-                          />
-                          <span className="custom-checkbox"></span>
-                          <span>{p.name}</span>
-                        </label>
-
-                        {expenseSplitType === 'percentage' && isSelected && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    return activeTrip.participants.map(p => {
+                      const isSelected = expenseSplits[p.id] > 0;
+                      const shareCost = expenseSplitType === 'equal'
+                        ? (isSelected ? equalShare : 0)
+                        : (parsedAmount * ((expenseSplits[p.id] || 0) / 100));
+                        
+                      return (
+                        <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <label className="checkbox-container">
                             <input 
-                              type="number" 
-                              className="input-field" 
-                              style={{ width: '64px', padding: '6px', textAlign: 'center' }}
-                              value={expenseSplits[p.id] || 0}
-                              onChange={(e) => handleSplitChange(p.id, parseFloat(e.target.value) || 0)}
+                              type="checkbox" 
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (expenseSplitType === 'equal') {
+                                  handleSplitChange(p.id, e.target.checked ? 1 : 0);
+                                } else {
+                                  const alreadySelected = Object.keys(expenseSplits).filter(pId => expenseSplits[pId] > 0 && pId !== p.id);
+                                  const remainingPct = 100 - alreadySelected.reduce((sum, pId) => sum + (expenseSplits[pId] || 0), 0);
+                                  handleSplitChange(p.id, e.target.checked ? Math.max(0, remainingPct) : 0);
+                                }
+                              }}
                             />
-                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                            <span className="custom-checkbox"></span>
+                            <span style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span>{p.name}</span>
+                              <span style={{ fontSize: '11px', color: isSelected ? 'var(--color-primary-light)' : 'var(--text-muted)' }}>
+                                {shareCost.toFixed(2)} {activeTrip.currency}
+                              </span>
+                            </span>
+                          </label>
+
+                          {expenseSplitType === 'percentage' && isSelected && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <input 
+                                type="number" 
+                                className="input-field" 
+                                style={{ width: '64px', padding: '6px', textAlign: 'center' }}
+                                value={expenseSplits[p.id] || 0}
+                                onChange={(e) => handleSplitChange(p.id, parseFloat(e.target.value) || 0)}
+                              />
+                              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
