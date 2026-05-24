@@ -14,7 +14,7 @@
   
   --color-primary: #0ea5e9; /* Sky Blue */
   --color-primary-light: #38bdf8;
-  --color-primary-gradient: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
+  --color-primary-gradient: linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
   --color-secondary: #06b6d4; /* Cyan */
   --color-success: #10b981; /* Emerald Green */
   --color-danger: #ef4444; /* Rose Red */
@@ -66,8 +66,7 @@
   --border-color-active: rgba(255, 255, 255, 0.4);
   --color-primary: #ffffff;
   --color-primary-light: #f3f4f6;
-  --color-primary-light: #f3f4f6;
-  --color-primary-gradient: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
+  --color-primary-gradient: linear-gradient(135deg, #ffffff 0%, #64748b 100%);
   --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.15);
   --bg-glow: rgba(255, 255, 255, 0.05);
 }
