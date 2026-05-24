@@ -562,57 +562,51 @@ class StorageService {
     
     if (participants.length === 0) return [];
 
-    const stats: { [id: string]: { paid: number, owed: number, lineItems: BalanceLineItem[] } } = {};
+    const stats: { [id: string]: { paid: number, owed: number, lineItems: { [expId: string]: BalanceLineItem } } } = {};
     participants.forEach(p => {
-      stats[p.id] = { paid: 0, owed: 0, lineItems: [] };
+      stats[p.id] = { paid: 0, owed: 0, lineItems: {} };
     });
 
     expenses.forEach(exp => {
+      const perUserExpStats: { [id: string]: { paid: number, owed: number } } = {};
+
       const payerId = exp.paid_by;
-      if (stats[payerId]) {
-        stats[payerId].paid += exp.amount;
-        stats[payerId].lineItems.push({
-          expense_id: exp.expense_id,
-          title: exp.title,
-          amount: exp.amount,
-          type: 'paid',
-          date: exp.created_at
-        });
-      }
+      if (!perUserExpStats[payerId]) perUserExpStats[payerId] = { paid: 0, owed: 0 };
+      perUserExpStats[payerId].paid += exp.amount;
 
       if (exp.split_type === 'equal') {
         const selectedParticipants = Object.keys(exp.splits).filter(pId => exp.splits[pId] > 0);
         if (selectedParticipants.length > 0) {
           const share = exp.amount / selectedParticipants.length;
           selectedParticipants.forEach(pId => {
-            if (stats[pId]) {
-              stats[pId].owed += share;
-              stats[pId].lineItems.push({
-                expense_id: exp.expense_id,
-                title: exp.title,
-                amount: share,
-                type: 'owed',
-                date: exp.created_at
-              });
-            }
+            if (!perUserExpStats[pId]) perUserExpStats[pId] = { paid: 0, owed: 0 };
+            perUserExpStats[pId].owed += share;
           });
         }
       } else if (exp.split_type === 'percentage') {
-        const selectedParticipants = Object.keys(exp.splits);
-        selectedParticipants.forEach(pId => {
+        Object.keys(exp.splits).forEach(pId => {
           const share = exp.amount * ((exp.splits[pId] || 0) / 100);
-          if (stats[pId] && share > 0) {
-            stats[pId].owed += share;
-            stats[pId].lineItems.push({
-              expense_id: exp.expense_id,
-              title: exp.title,
-              amount: share,
-              type: 'owed',
-              date: exp.created_at
-            });
+          if (share > 0) {
+            if (!perUserExpStats[pId]) perUserExpStats[pId] = { paid: 0, owed: 0 };
+            perUserExpStats[pId].owed += share;
           }
         });
       }
+
+      // Add to global stats and lineItems
+      Object.keys(perUserExpStats).forEach(pId => {
+        if (stats[pId]) {
+          stats[pId].paid += perUserExpStats[pId].paid;
+          stats[pId].owed += perUserExpStats[pId].owed;
+          stats[pId].lineItems[exp.expense_id] = {
+            expense_id: exp.expense_id,
+            title: exp.title,
+            paidAmount: perUserExpStats[pId].paid,
+            owedAmount: perUserExpStats[pId].owed,
+            date: exp.created_at
+          };
+        }
+      });
     });
 
     return participants.map(p => ({
@@ -621,7 +615,7 @@ class StorageService {
       paid: Math.round(stats[p.id].paid * 100) / 100,
       owed: Math.round(stats[p.id].owed * 100) / 100,
       balance: Math.round((stats[p.id].paid - stats[p.id].owed) * 100) / 100,
-      lineItems: stats[p.id].lineItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      lineItems: Object.values(stats[p.id].lineItems).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     }));
   }
 

@@ -34,6 +34,7 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
   --shadow-glow: 0 0 20px rgba(14, 165, 233, 0.25);
+  --bg-glow: rgba(14, 165, 233, 0.08);
   
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -54,6 +55,7 @@
   --color-primary-light: #c084fc;
   --color-primary-gradient: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
   --shadow-glow: 0 0 20px rgba(168, 85, 247, 0.25);
+  --bg-glow: rgba(168, 85, 247, 0.08);
 }
 
 [data-theme="dark"] {
@@ -64,8 +66,10 @@
   --border-color-active: rgba(255, 255, 255, 0.4);
   --color-primary: #ffffff;
   --color-primary-light: #f3f4f6;
+  --color-primary-light: #f3f4f6;
   --color-primary-gradient: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
   --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.15);
+  --bg-glow: rgba(255, 255, 255, 0.05);
 }
 
 /* Reset and Global Styles */
@@ -84,8 +88,8 @@ body {
   line-height: 1.5;
   overflow-x: hidden;
   background-image: 
-    radial-gradient(circle at 10% 20%, var(--border-color-active) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.06) 0%, transparent 45%);
+    radial-gradient(circle at 10% 20%, var(--bg-glow) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, var(--bg-glow) 0%, transparent 45%);
   background-attachment: fixed;
 }
 

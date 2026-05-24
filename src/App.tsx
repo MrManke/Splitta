@@ -460,7 +460,10 @@ function App() {
         balances.forEach(b => {
           text += `${formatName(b.name)}: ${b.balance > 0 ? '+' : ''}${b.balance} ${activeTrip.currency}\n`;
           b.lineItems.forEach(li => {
-            text += `  - ${li.title}: ${li.type === 'paid' ? '+' : '-'}${li.amount}\n`;
+            text += `  - ${li.title}:`;
+            if (li.paidAmount > 0) text += ` +${li.paidAmount}`;
+            if (li.owedAmount > 0) text += ` -${li.owedAmount}`;
+            text += `\n`;
           });
         });
         text += `\n`;
@@ -630,13 +633,30 @@ function App() {
               <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8, marginBottom: '2px' }}>Aktiv Resa</div>
               <h2 style={{ fontSize: '18px', margin: 0, color: '#fff' }}>{activeTrip.title}</h2>
             </div>
-            <button 
-              className="btn btn-sm" 
-              style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none' }}
-              onClick={() => setActiveTab('dashboard')}
-            >
-              Byt Resa
-            </button>
+            <div style={{ position: 'relative' }}>
+              <select
+                value={activeTrip.trip_id}
+                onChange={(e) => {
+                  const t = trips.find(trip => trip.trip_id === e.target.value);
+                  if (t) setActiveTrip(t);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  opacity: 0, cursor: 'pointer', zIndex: 10
+                }}
+              >
+                {[...trips].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(t => (
+                  <option key={t.trip_id} value={t.trip_id}>{t.title}</option>
+                ))}
+              </select>
+              <button 
+                className="btn btn-sm" 
+                style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none', position: 'relative', zIndex: 5 }}
+              >
+                Byt Resa
+              </button>
+            </div>
           </div>
         )}
         
@@ -663,7 +683,7 @@ function App() {
               </div>
             ) : (
               <div className="trips-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {trips.map(t => (
+                {[...trips].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(t => (
                   <div 
                     key={t.trip_id} 
                     className={`card card-hover expense-item ${activeTrip?.trip_id === t.trip_id ? 'active-trip' : ''}`}
@@ -944,15 +964,28 @@ function App() {
                     </div>
                   </div>
                   {activeTripBalances.map(b => (
-                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-                      <strong>{formatName(b.name)}</strong>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ color: 'var(--color-success)', marginRight: '8px', minWidth: '40px', display: 'inline-block' }}>+{b.paid}</span>
-                        <span style={{ color: 'var(--color-danger)', marginRight: '8px', minWidth: '40px', display: 'inline-block' }}>-{b.owed}</span>
-                        <strong style={{ minWidth: '45px', display: 'inline-block', color: b.balance > 0 ? 'var(--color-success)' : b.balance < 0 ? 'var(--color-danger)' : 'var(--text-primary)' }}>
-                          {b.balance > 0 ? '+' : ''}{b.balance}
-                        </strong>
+                    <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' }}>
+                        <strong>{formatName(b.name)}</strong>
+                        <div style={{ textAlign: 'right' }}>
+                          <strong style={{ minWidth: '45px', display: 'inline-block', color: b.balance > 0 ? 'var(--color-success)' : b.balance < 0 ? 'var(--color-danger)' : 'var(--text-primary)' }}>
+                            {b.balance > 0 ? '+' : ''}{b.balance}
+                          </strong>
+                        </div>
                       </div>
+                      {b.lineItems && b.lineItems.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '8px', borderLeft: '2px solid var(--border-color-active)' }}>
+                          {b.lineItems.map((li, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>{li.title}</span>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                {li.paidAmount > 0 ? <span style={{ color: 'var(--color-success)', width: '45px', textAlign: 'right' }}>+{li.paidAmount.toFixed(2)}</span> : <span style={{ width: '45px' }}></span>}
+                                {li.owedAmount > 0 ? <span style={{ color: 'var(--color-danger)', width: '45px', textAlign: 'right' }}>-{li.owedAmount.toFixed(2)}</span> : <span style={{ width: '45px' }}></span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1720,9 +1753,10 @@ function App() {
                       {b.lineItems.map((li, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '4px', color: '#475569' }}>
                           <span>{li.title}</span>
-                          <span style={{ color: li.type === 'paid' ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>
-                            {li.type === 'paid' ? '+' : '-'}{li.amount} {activeTrip.currency}
-                          </span>
+                          <div>
+                            {li.paidAmount > 0 && <span style={{ color: '#16a34a', fontWeight: 'bold', marginRight: '8px' }}>+{li.paidAmount.toFixed(2)} {activeTrip.currency}</span>}
+                            {li.owedAmount > 0 && <span style={{ color: '#dc2626', fontWeight: 'bold' }}>-{li.owedAmount.toFixed(2)} {activeTrip.currency}</span>}
+                          </div>
                         </div>
                       ))}
                     </div>
