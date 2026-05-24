@@ -5,17 +5,31 @@ import {
   Wifi, WifiOff, ChevronDown, ChevronUp, Check, Sparkles, Send
 } from 'lucide-react';
 import QRCode from 'qrcode';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { storageService, type Trip, type User } from './services/storageService';
 import { ocrService } from './services/ocrService';
 import './App.css';
+
+const formatName = (name: string) => name.replace(' (Admin)', '').replace(' (Utan konto)', '').trim();
 
 function App() {
   // --- STATE ---
   const [currentUser, setCurrentUser] = useState<User>(storageService.getLoggedInUser());
   const [allUsers, setAllUsers] = useState<User[]>(storageService.getUsers());
   const [trips, setTrips] = useState<Trip[]>(storageService.getTrips());
-  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(() => {
+    const savedTripId = localStorage.getItem('OlleSplit_LastTripId');
+    const availableTrips = storageService.getTrips();
+    if (savedTripId) {
+      return availableTrips.find(t => t.trip_id === savedTripId) || null;
+    }
+    return null;
+  });
   const [isOffline, setIsOffline] = useState<boolean>(storageService.isOffline());
+  const [theme, setTheme] = useState<'blue' | 'purple' | 'dark'>(() => {
+    return (localStorage.getItem('OlleSplit_Theme') as 'blue' | 'purple' | 'dark') || 'blue';
+  });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'expenses' | 'debts' | 'album' | 'admin'>('dashboard');
 
   // Interactive UI States
@@ -28,6 +42,9 @@ function App() {
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [showSwishModal, setShowSwishModal] = useState<{ from: string; fromName: string; to: string; toName: string; amount: number } | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareFormat, setShareFormat] = useState<'text' | 'pdf' | 'image'>('text');
+  const [shareLevel, setShareLevel] = useState<'all' | 'summary'>('summary');
 
   // Form Inputs - Trip
   const [newTripTitle, setNewTripTitle] = useState('');
@@ -49,6 +66,7 @@ function App() {
   const [photoBase64, setPhotoBase64] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteAlias, setInviteAlias] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
   const [newCommentText, setNewCommentText] = useState<{ [expenseId: string]: string }>({});
 
   // Refs for drawing QR code and uploading files
@@ -75,7 +93,7 @@ function App() {
       }
     });
 
-    // Auto-select first trip if available
+    // Auto-select first trip if available and none selected
     const initialTrips = storageService.getTrips();
     if (initialTrips.length > 0 && !activeTrip) {
       setActiveTrip(initialTrips[0]);
@@ -83,6 +101,21 @@ function App() {
 
     return () => unsubscribe();
   }, [activeTrip]);
+
+  useEffect(() => {
+    if (activeTrip) {
+      localStorage.setItem('OlleSplit_LastTripId', activeTrip.trip_id);
+    }
+  }, [activeTrip]);
+
+  useEffect(() => {
+    if (theme === 'blue') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem('OlleSplit_Theme', theme);
+  }, [theme]);
 
   // Handle Swish QR code canvas drawing
   useEffect(() => {
@@ -150,12 +183,13 @@ function App() {
       return;
     }
 
-    const result = storageService.inviteUser(inviteEmail, inviteAlias);
+    const result = storageService.inviteUser(inviteEmail, inviteAlias, invitePhone);
     if (result.success) {
       triggerToast(`Inbjudan skickad till ${inviteEmail}!`);
       setShowInviteModal(false);
       setInviteEmail('');
       setInviteAlias('');
+      setInvitePhone('');
     } else {
       triggerToast(result.error || 'Något gick fel', 'error');
     }
@@ -197,6 +231,11 @@ function App() {
   const handleOpenEditExpense = (exp: any) => {
     if (!activeTrip) return;
     
+    if (currentUser.role !== 'admin' && exp.paid_by !== currentUser.uid) {
+      triggerToast('Du kan bara ändra dina egna utlägg.', 'error');
+      return;
+    }
+
     setEditingExpenseId(exp.expense_id);
     setExpenseTitle(exp.title);
     setExpenseAmount(exp.amount.toString());
@@ -292,6 +331,13 @@ function App() {
 
   const handleDeleteExpense = (expenseId: string, title: string) => {
     if (!activeTrip) return;
+    
+    const exp = activeTrip.expenses.find(e => e.expense_id === expenseId);
+    if (currentUser.role !== 'admin' && exp?.paid_by !== currentUser.uid) {
+      triggerToast('Du kan bara ta bort dina egna utlägg.', 'error');
+      return;
+    }
+
     if (confirm(`Vill du ta bort utlägget "${title}"?`)) {
       const result = storageService.deleteExpense(activeTrip.trip_id, expenseId);
       if (result.success) {
@@ -396,7 +442,105 @@ function App() {
     triggerToast('CSV-sammanställning har exporterats!');
   };
 
+  const handleShareTrip = () => {
+    setShowShareModal(true);
+  };
+
+  const executeShare = async () => {
+    if (!activeTrip) return;
+    const balances = storageService.calculateBalances(activeTrip);
+    const settlements = storageService.calculateSettlements(activeTrip);
+    
+    if (['text', 'whatsapp', 'email'].includes(shareFormat)) {
+      let text = `Resa: ${activeTrip.title}\n`;
+      text += `Totalt utlagt: ${activeTrip.total_cost} ${activeTrip.currency}\n\n`;
+      
+      if (shareLevel === 'all') {
+        text += `💰 Detaljerad Sammanställning:\n`;
+        balances.forEach(b => {
+          text += `${formatName(b.name)}: ${b.balance > 0 ? '+' : ''}${b.balance} ${activeTrip.currency}\n`;
+          b.lineItems.forEach(li => {
+            text += `  - ${li.title}: ${li.type === 'paid' ? '+' : '-'}${li.amount}\n`;
+          });
+        });
+        text += `\n`;
+      }
+      
+      text += `🤝 Vem swishar vem?\n`;
+      if (settlements.length === 0) {
+        text += `Alla är kvitt!\n`;
+      } else {
+        settlements.forEach(s => {
+          text += `${formatName(s.fromName)} swishar ${s.amount} ${activeTrip.currency} till ${formatName(s.toName)}\n`;
+        });
+      }
+
+      if (shareFormat === 'whatsapp') {
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+      } else if (shareFormat === 'email') {
+        window.open(`mailto:?subject=${encodeURIComponent(`Sammanställning: ${activeTrip.title}`)}&body=${encodeURIComponent(text)}`, '_blank');
+      } else {
+        if (navigator.share) {
+          navigator.share({
+            title: activeTrip.title,
+            text: text
+          }).catch(console.error);
+        } else {
+          navigator.clipboard.writeText(text);
+          triggerToast('Sammanställning kopierad till urklipp!');
+        }
+      }
+      setShowShareModal(false);
+    } else {
+      // PDF or Image export logic using the hidden print view
+      const printElement = document.getElementById('export-print-view');
+      if (!printElement) return;
+      
+      triggerToast('Genererar export, vänta...', 'success');
+      
+      try {
+        // Temporarily make it visible for html2canvas
+        printElement.style.display = 'block';
+        
+        // Wait for fonts/QR to render
+        await new Promise(r => setTimeout(r, 500));
+        
+        const canvas = await html2canvas(printElement, { scale: 2, useCORS: true });
+        printElement.style.display = 'none';
+
+        if (shareFormat === 'image') {
+          const imgData = canvas.toDataURL('image/jpeg', 0.9);
+          const link = document.createElement('a');
+          link.download = `OlleSplit_${activeTrip.title.replace(/\s+/g, '_')}.jpg`;
+          link.href = imgData;
+          link.click();
+          triggerToast('Bild har sparats!');
+        } else if (shareFormat === 'pdf') {
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+          });
+          
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+          
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+          pdf.save(`OlleSplit_${activeTrip.title.replace(/\s+/g, '_')}.pdf`);
+          triggerToast('PDF har sparats!');
+        }
+      } catch (err) {
+        printElement.style.display = 'none';
+        triggerToast('Gick inte att generera exporten', 'error');
+        console.error(err);
+      }
+      setShowShareModal(false);
+    }
+  };
+
   const activeTripSettlements = activeTrip ? storageService.calculateSettlements(activeTrip) : [];
+  const activeTripBalances = activeTrip ? storageService.calculateBalances(activeTrip) : [];
 
   return (
     <div className="app-container">
@@ -410,6 +554,28 @@ function App() {
         </div>
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Theme Switcher */}
+          <div className="theme-switcher" style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 'var(--radius-full)', padding: '2px' }}>
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'blue' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'blue' ? '#0ea5e9' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('blue')}
+              title="Havsblå"
+            />
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'dark' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'dark' ? '#333' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('dark')}
+              title="Midnatt"
+            />
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'purple' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'purple' ? '#a855f7' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('purple')}
+              title="Klassisk"
+            />
+          </div>
+
           {/* Offline Toggle */}
           <button 
             className={`btn btn-sm ${isOffline ? 'btn-danger' : 'btn-secondary'}`} 
@@ -435,13 +601,13 @@ function App() {
               }}
             >
               {allUsers.map(u => (
-                <option key={u.uid} value={u.uid}>{u.alias} ({u.role})</option>
+                <option key={u.uid} value={u.uid}>{formatName(u.alias)} ({u.role})</option>
               ))}
             </select>
             <div className="avatar">
-              {currentUser.alias.charAt(0)}
+              {formatName(currentUser.alias).charAt(0)}
             </div>
-            <span className="username">{currentUser.alias.split(' ')[0]}</span>
+            <span className="username">{formatName(currentUser.alias).split(' ')[0]}</span>
           </div>
         </div>
       </header>
@@ -456,6 +622,23 @@ function App() {
 
       {/* --- MAIN CONTENT PANEL --- */}
       <main className="main-content">
+
+        {/* --- GLOBAL TRIP CONTEXT BANNER --- */}
+        {activeTab !== 'dashboard' && activeTrip && (
+          <div className="trip-context-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-primary-gradient)', color: '#fff', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', boxShadow: 'var(--shadow-glow)' }}>
+            <div>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8, marginBottom: '2px' }}>Aktiv Resa</div>
+              <h2 style={{ fontSize: '18px', margin: 0, color: '#fff' }}>{activeTrip.title}</h2>
+            </div>
+            <button 
+              className="btn btn-sm" 
+              style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none' }}
+              onClick={() => setActiveTab('dashboard')}
+            >
+              Byt Resa
+            </button>
+          </div>
+        )}
         
         {/* --- VIEW: DASHBOARD / TRAVEL LIST --- */}
         {activeTab === 'dashboard' && (
@@ -530,9 +713,19 @@ function App() {
                         color: p.has_account ? 'var(--text-primary)' : 'var(--text-secondary)'
                       }}
                     >
-                      {p.name} {p.id === activeTrip.created_by && '👑'} {!p.has_account && '👻'}
+                      {formatName(p.name)} {p.id === activeTrip.created_by && '👑'} {!p.has_account && '👻'}
                     </span>
                   ))}
+                </div>
+
+                <div style={{ marginTop: '20px', marginBottom: '8px' }}>
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ width: '100%', padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} 
+                    onClick={() => { setActiveTab('expenses'); handleOpenAddExpense(); }}
+                  >
+                    <Plus size={18} style={{ marginRight: '6px' }} /> Skapa nytt utlägg
+                  </button>
                 </div>
 
                 <h3 style={{ marginTop: '24px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
@@ -576,6 +769,9 @@ function App() {
                 <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
                   Exportera Excel
                 </button>
+                <button className="btn btn-secondary btn-sm" onClick={handleShareTrip}>
+                  <Share2 size={12} style={{ marginRight: '4px' }}/> Dela
+                </button>
                 <button className="btn btn-primary btn-sm" onClick={handleOpenAddExpense}>
                   <Plus size={16} /> Lägg till utlägg
                 </button>
@@ -593,7 +789,7 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {activeTrip.expenses.map(exp => {
                   const isExpanded = expandedExpense === exp.expense_id;
-                  const payerName = activeTrip.participants.find(p => p.id === exp.paid_by)?.name || exp.created_by_alias;
+                  const payerName = formatName(activeTrip.participants.find(p => p.id === exp.paid_by)?.name || exp.created_by_alias);
                   
                   return (
                     <div 
@@ -650,7 +846,7 @@ function App() {
                                 
                                 return (
                                   <div key={pId} className="expense-split-row">
-                                    <span>{p?.name || 'Okänd'}</span>
+                                    <span>{p ? formatName(p.name) : 'Okänd'}</span>
                                     <strong>
                                       {exp.split_type === 'percentage' && `(${exp.splits[pId]}%) `}
                                       {cost.toFixed(2)} {activeTrip.currency}
@@ -697,18 +893,22 @@ function App() {
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                            <button 
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => handleOpenEditExpense(exp)}
-                            >
-                              Ändra utlägg
-                            </button>
-                            <button 
-                              className="btn btn-danger btn-sm"
-                              onClick={() => handleDeleteExpense(exp.expense_id, exp.title)}
-                            >
-                              <Trash2 size={12} /> Ta bort utlägg
-                            </button>
+                            { (currentUser.role === 'admin' || exp.paid_by === currentUser.uid) && (
+                              <>
+                                <button 
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => handleOpenEditExpense(exp)}
+                                >
+                                  Ändra utlägg
+                                </button>
+                                <button 
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => handleDeleteExpense(exp.expense_id, exp.title)}
+                                >
+                                  <Trash2 size={12} /> Ta bort utlägg
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
@@ -724,6 +924,41 @@ function App() {
         {activeTab === 'debts' && activeTrip && (
           <>
             <h2>Skuldomräkning & Reglering</h2>
+            <div className="card" style={{ marginBottom: '16px', padding: '16px', background: 'rgba(255,255,255,0.02)' }}>
+              <div 
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setExpandedExpense(expandedExpense === 'debts_detail' ? null : 'debts_detail')}
+              >
+                <h3 style={{ fontSize: '15px' }}>Detaljerad Sammanställning</h3>
+                {expandedExpense === 'debts_detail' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </div>
+              
+              {expandedExpense === 'debts_detail' && (
+                <div style={{ marginTop: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    <span>Deltagare</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ marginRight: '8px' }}>Utlagt (Credit)</span>
+                      <span style={{ marginRight: '8px' }}>Andel (Debit)</span>
+                      <span>Netto</span>
+                    </div>
+                  </div>
+                  {activeTripBalances.map(b => (
+                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                      <strong>{formatName(b.name)}</strong>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ color: 'var(--color-success)', marginRight: '8px', minWidth: '40px', display: 'inline-block' }}>+{b.paid}</span>
+                        <span style={{ color: 'var(--color-danger)', marginRight: '8px', minWidth: '40px', display: 'inline-block' }}>-{b.owed}</span>
+                        <strong style={{ minWidth: '45px', display: 'inline-block', color: b.balance > 0 ? 'var(--color-success)' : b.balance < 0 ? 'var(--color-danger)' : 'var(--text-primary)' }}>
+                          {b.balance > 0 ? '+' : ''}{b.balance}
+                        </strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
               Nedan visas de absolut mest effektiva transaktionerna för att nolla alla skulder, framräknade med en skuldförenklingsalgoritm.
             </p>
@@ -1016,19 +1251,25 @@ function App() {
                   Tips: Skriver du namnet/e-posten på en inbjuden vän kopplas deras konto. Annars skapas en smart "Ghost User" som du kan fördela kostnader på!
                 </p>
                 {newTripParticipants.map((part, index) => (
-                  <input 
-                    key={index}
-                    type="text"
-                    className="input-field"
-                    placeholder={`Deltagare ${index + 1}`}
-                    value={part}
-                    onChange={(e) => {
-                      const updated = [...newTripParticipants];
-                      updated[index] = e.target.value;
-                      setNewTripParticipants(updated);
-                    }}
-                    style={{ marginBottom: '8px' }}
-                  />
+                  <div key={index} style={{ marginBottom: '8px' }}>
+                    <input 
+                      type="text"
+                      className="input-field"
+                      placeholder={`Deltagare ${index + 1}`}
+                      value={part}
+                      list={`user-list-${index}`}
+                      onChange={(e) => {
+                        const updated = [...newTripParticipants];
+                        updated[index] = e.target.value;
+                        setNewTripParticipants(updated);
+                      }}
+                    />
+                    <datalist id={`user-list-${index}`}>
+                      {allUsers.map(u => (
+                        <option key={u.uid} value={u.alias} />
+                      ))}
+                    </datalist>
+                  </div>
                 ))}
                 <button 
                   type="button" 
@@ -1133,7 +1374,7 @@ function App() {
                   onChange={(e) => setExpensePayer(e.target.value)}
                 >
                   {activeTrip.participants.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>{formatName(p.name)}</option>
                   ))}
                 </select>
               </div>
@@ -1202,7 +1443,7 @@ function App() {
                             />
                             <span className="custom-checkbox"></span>
                             <span style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span>{p.name}</span>
+                              <span>{formatName(p.name)}</span>
                               <span style={{ fontSize: '11px', color: isSelected ? 'var(--color-primary-light)' : 'var(--text-muted)' }}>
                                 {shareCost.toFixed(2)} {activeTrip.currency}
                               </span>
@@ -1240,7 +1481,7 @@ function App() {
               </div>
 
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '14px' }}>
-                Registrera utlägg
+                {editingExpenseId ? 'Spara ändringar' : 'Registrera utlägg'}
               </button>
             </form>
           </div>
@@ -1332,11 +1573,195 @@ function App() {
                 />
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Telefonnummer (för Swish)</label>
+                <input 
+                  type="tel" 
+                  className="input-field" 
+                  placeholder="t.ex. 0701234567"
+                  value={invitePhone}
+                  onChange={(e) => setInvitePhone(e.target.value)}
+                />
+              </div>
+
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '14px' }}>
                 Ge tillträde
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* --- MODAL: SHARE OPTIONS --- */}
+      {showShareModal && activeTrip && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Dela Sammanställning</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowShareModal(false)}>Avbryt</button>
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Vad vill du dela?</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareLevel === 'summary' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setShareLevel('summary')}
+                >
+                  Endast Slutreglering
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareLevel === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setShareLevel('all')}
+                >
+                  Detaljerad Rapport
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Hur vill du dela?</label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareFormat === 'whatsapp' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1, minWidth: '45%' }}
+                  onClick={() => setShareFormat('whatsapp')}
+                >
+                  WhatsApp
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareFormat === 'email' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1, minWidth: '45%' }}
+                  onClick={() => setShareFormat('email')}
+                >
+                  E-post
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareFormat === 'text' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1, minWidth: '30%' }}
+                  onClick={() => setShareFormat('text')}
+                >
+                  Kopiera Text
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareFormat === 'image' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1, minWidth: '30%' }}
+                  onClick={() => setShareFormat('image')}
+                >
+                  Bild (JPG)
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn btn-sm ${shareFormat === 'pdf' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1, minWidth: '30%' }}
+                  onClick={() => setShareFormat('pdf')}
+                >
+                  PDF
+                </button>
+              </div>
+            </div>
+
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: '16px' }} onClick={executeShare}>
+              Exportera & Dela
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- HIDDEN EXPORT VIEW FOR HTML2CANVAS --- */}
+      {activeTrip && (
+        <div 
+          id="export-print-view" 
+          style={{ 
+            display: 'none', 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            width: '800px', 
+            padding: '40px', 
+            background: '#ffffff', 
+            color: '#000000',
+            fontFamily: 'Inter, sans-serif',
+            zIndex: -9999
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <Sparkles size={32} color="#0ea5e9" />
+            <h1 style={{ margin: 0, fontSize: '32px', color: '#000' }}>Ölle-Split Sammanställning</h1>
+          </div>
+          <h2 style={{ fontSize: '24px', color: '#0ea5e9', marginBottom: '10px' }}>{activeTrip.title}</h2>
+          <p style={{ fontSize: '18px', color: '#444', marginBottom: '30px' }}>
+            Totalt utlagt: <strong>{activeTrip.total_cost} {activeTrip.currency}</strong>
+          </p>
+
+          {shareLevel === 'all' && (
+            <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '20px', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '15px', color: '#000' }}>
+                Detaljerad Debit/Credit per Person
+              </h3>
+              {activeTripBalances.map(b => (
+                <div key={b.id} style={{ marginBottom: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: 'bold' }}>
+                    <span style={{ color: '#000' }}>{formatName(b.name)}</span>
+                    <span style={{ color: b.balance > 0 ? '#16a34a' : b.balance < 0 ? '#dc2626' : '#64748b' }}>
+                      {b.balance > 0 ? '+' : ''}{b.balance} {activeTrip.currency}
+                    </span>
+                  </div>
+                  {b.lineItems && b.lineItems.length > 0 && (
+                    <div style={{ marginTop: '10px', paddingLeft: '15px', borderLeft: '3px solid #cbd5e1' }}>
+                      {b.lineItems.map((li, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '4px', color: '#475569' }}>
+                          <span>{li.title}</span>
+                          <span style={{ color: li.type === 'paid' ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>
+                            {li.type === 'paid' ? '+' : '-'}{li.amount} {activeTrip.currency}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h3 style={{ fontSize: '20px', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '15px', color: '#000' }}>
+            Vem Swishar Vem? (Reglering)
+          </h3>
+          
+          {activeTripSettlements.length === 0 ? (
+            <p style={{ color: '#16a34a', fontSize: '18px', fontWeight: 'bold' }}>Alla är kvitt!</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {activeTripSettlements.map((s, idx) => {
+                const payeePhone = allUsers.find(u => u.uid === s.to || u.alias === s.toName)?.phone || '0701234567';
+                const swishData = JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: s.amount }, message: { value: `Splitta: ${activeTrip.title}` }});
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent('swish://payment?data=' + swishData)}`;
+                return (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div>
+                      <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px', color: '#000' }}>
+                        {formatName(s.fromName)} <span style={{ color: '#64748b', fontWeight: 'normal' }}>swishar</span> {formatName(s.toName)}
+                      </div>
+                      <div style={{ fontSize: '28px', color: '#0ea5e9', fontWeight: 'bold' }}>
+                        {s.amount} {activeTrip.currency}
+                      </div>
+                    </div>
+                    <div>
+                      <img src={qrUrl} alt="Swish QR" style={{ width: '120px', height: '120px', borderRadius: '8px', background: '#fff', padding: '5px' }} crossOrigin="anonymous" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

@@ -1,73 +1,31 @@
-# React + TypeScript + Vite
+# Ölle-Split
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+En modern webbapplikation för att dela upp kostnader under resor och äventyr. Skapad för att snabbt och enkelt registrera utlägg, räkna ut vem som är skyldig vem, och exportera en slutrapport med Swish-QR-koder.
 
-Currently, two official plugins are available:
+## Funktioner
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Resor & Deltagare**: Skapa resor och bjud in vänner (med e-post eller ghost-användare).
+- **Smarta Utlägg**: Lägg in utgifter, dela lika eller procentuellt, och bifoga kvitton via bild/kamera.
+- **Kvitto-AI (OCR)**: Scanna kvitton och låt appen automatiskt hitta totalbeloppet.
+- **Swish-integration**: Skapar automatiskt Swish-QR-koder och öppnar Swish-appen med ifyllt nummer, belopp och meddelande för snabba regleringar.
+- **Avancerad Export**: Generera en snygg slutrapport som **PDF** eller **Bild (JPG)**, eller dela direkt via **WhatsApp** och **E-post**.
+- **Fjäll-läge (Offline)**: Använd appen offline (sparar i webbläsaren) och synka senare.
+- **Teman**: Byt mellan Havsblå, Midnatt och Klassisk lila.
 
-## React Compiler
+## Teknikstack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React, TypeScript, Vite
+- **Styling**: Vanilla CSS (med variabler och themes)
+- **Ikoner**: Lucide React
+- **Export**: html2canvas & jspdf
+- **QR-koder**: qrcode, api.qrserver.com
 
-## Expanding the ESLint configuration
+## Kör lokalt
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. Klona repot
+2. Installera beroenden:
+   `npm install`
+3. Starta servern:
+   `npm run dev`
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+All data sparas lokalt i webbläsaren (localStorage) tills en extern databas kopplas på.

@@ -5,12 +5,22 @@ export interface User {
   email: string;
   alias: string;
   role: 'admin' | 'user';
+  phone?: string;
 }
 
 export interface Participant {
   id: string;
   name: string;
   has_account: boolean;
+  phone?: string;
+}
+
+export interface BalanceLineItem {
+  expense_id: string;
+  title: string;
+  amount: number;
+  type: 'paid' | 'owed';
+  date: string;
 }
 
 export interface Expense {
@@ -546,6 +556,75 @@ class StorageService {
   }
 
   // --- DEBT SIMPLIFICATION ALGORITHM (GREEDY SPLITWISE) ---
+  calculateBalances(trip: Trip): { id: string; name: string; paid: number; owed: number; balance: number; lineItems: BalanceLineItem[] }[] {
+    const participants = trip.participants;
+    const expenses = trip.expenses;
+    
+    if (participants.length === 0) return [];
+
+    const stats: { [id: string]: { paid: number, owed: number, lineItems: BalanceLineItem[] } } = {};
+    participants.forEach(p => {
+      stats[p.id] = { paid: 0, owed: 0, lineItems: [] };
+    });
+
+    expenses.forEach(exp => {
+      const payerId = exp.paid_by;
+      if (stats[payerId]) {
+        stats[payerId].paid += exp.amount;
+        stats[payerId].lineItems.push({
+          expense_id: exp.expense_id,
+          title: exp.title,
+          amount: exp.amount,
+          type: 'paid',
+          date: exp.created_at
+        });
+      }
+
+      if (exp.split_type === 'equal') {
+        const selectedParticipants = Object.keys(exp.splits).filter(pId => exp.splits[pId] > 0);
+        if (selectedParticipants.length > 0) {
+          const share = exp.amount / selectedParticipants.length;
+          selectedParticipants.forEach(pId => {
+            if (stats[pId]) {
+              stats[pId].owed += share;
+              stats[pId].lineItems.push({
+                expense_id: exp.expense_id,
+                title: exp.title,
+                amount: share,
+                type: 'owed',
+                date: exp.created_at
+              });
+            }
+          });
+        }
+      } else if (exp.split_type === 'percentage') {
+        const selectedParticipants = Object.keys(exp.splits);
+        selectedParticipants.forEach(pId => {
+          const share = exp.amount * ((exp.splits[pId] || 0) / 100);
+          if (stats[pId] && share > 0) {
+            stats[pId].owed += share;
+            stats[pId].lineItems.push({
+              expense_id: exp.expense_id,
+              title: exp.title,
+              amount: share,
+              type: 'owed',
+              date: exp.created_at
+            });
+          }
+        });
+      }
+    });
+
+    return participants.map(p => ({
+      id: p.id,
+      name: p.name,
+      paid: Math.round(stats[p.id].paid * 100) / 100,
+      owed: Math.round(stats[p.id].owed * 100) / 100,
+      balance: Math.round((stats[p.id].paid - stats[p.id].owed) * 100) / 100,
+      lineItems: stats[p.id].lineItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    }));
+  }
+
   calculateSettlements(trip: Trip): { from: string; fromName: string; to: string; toName: string; amount: number }[] {
     const participants = trip.participants;
     const expenses = trip.expenses;
