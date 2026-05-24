@@ -20,16 +20,22 @@ export function useFirebase() {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser: any) => {
       if (firebaseUser) {
         let userDoc = await firebaseService.getUser(firebaseUser.uid);
+        const isSuperAdmin = firebaseUser.email === 'magnus.ohlund@outlook.com' || firebaseUser.email === 'magnus.ohlund74@gmail.com';
+
         if (!userDoc) {
           // Create user document if it doesn't exist
-          const isSuperAdmin = firebaseUser.email === 'magnus.ohlund@outlook.com' || firebaseUser.email === 'magnus.ohlund74@gmail.com';
           userDoc = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            alias: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Användare',
+            alias: isSuperAdmin ? 'Ölle' : (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Användare'),
             role: isSuperAdmin ? 'admin' : 'user',
           };
           await firebaseService.saveUser(userDoc);
+        } else if (isSuperAdmin && (userDoc.alias !== 'Ölle' || userDoc.role !== 'admin')) {
+           // Enforce Ölle alias and admin role for existing documents
+           userDoc.alias = 'Ölle';
+           userDoc.role = 'admin';
+           await firebaseService.saveUser(userDoc);
         }
         setCurrentUser(userDoc);
       } else {
