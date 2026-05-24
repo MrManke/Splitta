@@ -13,6 +13,8 @@ import './App.css';
 
 const formatName = (name: string) => name.replace(' (Admin)', '').replace(' (Utan konto)', '').trim();
 
+const QRCodeComponent: any = (QRCode as any).default || QRCode;
+
 function App() {
   // --- STATE ---
   const [currentUser, setCurrentUser] = useState<User>(storageService.getLoggedInUser());
@@ -1552,7 +1554,7 @@ function App() {
               </div>
 
               <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block', margin: '20px 0' }}>
-                <QRCode 
+                <QRCodeComponent 
                   value={`swish://payment?data=${JSON.stringify({ version: 1, payee: { value: '0701234567' }, amount: { value: Math.round(showSwishModal.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})}`}
                   size={200}
                 />
@@ -1828,7 +1830,7 @@ function App() {
                       </div>
                     </div>
                     <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
-                      <QRCode value={swishUrl} size={120} />
+                      <QRCodeComponent value={swishUrl} size={120} />
                     </div>
                   </div>
                 );
