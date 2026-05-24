@@ -129,5 +129,5 @@ export function useFirebase() {
     return () => unsubscribe();
   }, [currentUser]);
 
-  return { currentUser, allUsers, trips, activities, authLoading };
+  return { currentUser, setCurrentUser, allUsers, trips, activities, authLoading };
 }

@@ -21,7 +21,7 @@ const QRCodeComponent: any = (QRCode as any).default || QRCode;
 
 function App() {
   // --- STATE (Firebase Sync) ---
-  const { currentUser, allUsers, trips, activities, authLoading } = useFirebase();
+  const { currentUser, setCurrentUser, allUsers, trips, activities, authLoading } = useFirebase();
 
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
 
@@ -736,6 +736,7 @@ function App() {
     }
     const updatedUser = { ...currentUser, phone: phonePromptInput.trim() };
     await firebaseService.saveUser(updatedUser);
+    setCurrentUser(updatedUser); // Update local state so the phone prompt disappears
   };
 
   if (currentUser && !currentUser.phone) {
