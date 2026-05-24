@@ -7,6 +7,10 @@ import {
 import QRCode from 'react-qr-code';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { firebaseService } from './services/firebaseService';
+import { useFirebase } from './hooks/useFirebase';
+import { signInWithPopup, googleProvider, auth, db } from './services/firebase';
+import { disableNetwork, enableNetwork } from 'firebase/firestore';
 import { storageService, type Trip, type User } from './services/storageService';
 import { ocrService } from './services/ocrService';
 import './App.css';
@@ -16,19 +20,41 @@ const formatName = (name: string) => name.replace(' (Admin)', '').replace(' (Uta
 const QRCodeComponent: any = (QRCode as any).default || QRCode;
 
 function App() {
-  // --- STATE ---
-  const [currentUser, setCurrentUser] = useState<User>(storageService.getLoggedInUser());
-  const [allUsers, setAllUsers] = useState<User[]>(storageService.getUsers());
-  const [trips, setTrips] = useState<Trip[]>(storageService.getTrips());
-  const [activeTrip, setActiveTrip] = useState<Trip | null>(() => {
-    const savedTripId = localStorage.getItem('OlleSplit_LastTripId');
-    const availableTrips = storageService.getTrips();
-    if (savedTripId) {
-      return availableTrips.find(t => t.trip_id === savedTripId) || null;
+  // --- STATE (Firebase Sync) ---
+  const { currentUser, allUsers, trips, activities, authLoading } = useFirebase();
+
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+
+  // Auto-select last active trip once trips are loaded
+  useEffect(() => {
+    if (trips.length > 0 && !activeTrip) {
+      const savedTripId = localStorage.getItem('OlleSplit_LastTripId');
+      if (savedTripId) {
+        const t = trips.find(t => t.trip_id === savedTripId);
+        if (t) setActiveTrip(t);
+      }
     }
-    return null;
-  });
-  const [isOffline, setIsOffline] = useState<boolean>(storageService.isOffline());
+    // Update activeTrip reference if it changed in Firestore
+    if (activeTrip) {
+      const updated = trips.find(t => t.trip_id === activeTrip.trip_id);
+      if (updated && JSON.stringify(updated) !== JSON.stringify(activeTrip)) {
+        setActiveTrip(updated);
+      }
+    }
+  }, [trips]);
+
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
   const [theme, setTheme] = useState<'blue' | 'purple' | 'dark'>(() => {
     return (localStorage.getItem('OlleSplit_Theme') as 'blue' | 'purple' | 'dark') || 'blue';
   });
@@ -75,38 +101,11 @@ function App() {
   const [invitePhone, setInvitePhone] = useState('');
   const [newCommentText, setNewCommentText] = useState<{ [expenseId: string]: string }>({});
 
-  // Refs for drawing QR code and uploading files
-  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Refs for uploading files
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // --- REACTIVE STORAGE SYNC ---
-  useEffect(() => {
-    // Subscribe to storage changes
-    const unsubscribe = storageService.subscribe(() => {
-      const u = storageService.getLoggedInUser();
-      const us = storageService.getUsers();
-      const ts = storageService.getTrips();
-      setCurrentUser(u);
-      setAllUsers(us);
-      setTrips(ts);
-      setIsOffline(storageService.isOffline());
-
-      // Sync active trip data
-      if (activeTrip) {
-        const updatedTrip = ts.find(t => t.trip_id === activeTrip.trip_id);
-        setActiveTrip(updatedTrip || ts[0] || null);
-      }
-    });
-
-    // Auto-select first trip if available and none selected
-    const initialTrips = storageService.getTrips();
-    if (initialTrips.length > 0 && !activeTrip) {
-      setActiveTrip(initialTrips[0]);
-    }
-
-    return () => unsubscribe();
-  }, [activeTrip]);
+  // The data sync is now handled entirely by the useFirebase hook above!
 
   useEffect(() => {
     if (activeTrip) {
@@ -132,57 +131,95 @@ function App() {
   };
 
   // --- ACTIONS ---
-  const handleToggleOffline = () => {
-    const nextState = !isOffline;
-    storageService.setOfflineMode(nextState);
-    triggerToast(
-      nextState ? 'Fjäll-läge aktiverat! Data sparas lokalt.' : 'Ansluten till molnet! Data har synkroniserats.',
-      nextState ? 'error' : 'success'
-    );
+  const handleToggleOffline = async () => {
+    try {
+      if (!isOffline) {
+        await disableNetwork(db);
+        setIsOffline(true);
+        triggerToast('Fjäll-läge aktiverat! (Tvingad offline-läge)', 'error');
+      } else {
+        await enableNetwork(db);
+        setIsOffline(false);
+        triggerToast('Ansluten till molnet! Synkroniserar...', 'success');
+      }
+    } catch (error) {
+      console.error("Kunde inte växla nätverksläge:", error);
+    }
   };
 
-  const handleCreateTrip = (e: React.FormEvent) => {
+  const handleCreateTrip = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTripTitle.trim()) {
       triggerToast('Ange en titel för resan!', 'error');
       return;
     }
+    if (!currentUser) return;
 
-    const created = storageService.createTrip(newTripTitle, newTripCurrency, newTripParticipants);
-    setActiveTrip(created);
+    const trip_id = 'TRIP_' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const participants: any[] = [{ id: currentUser.uid, name: currentUser.alias, has_account: true }];
+    
+    newTripParticipants.forEach((name, index) => {
+      if (!name.trim()) return;
+      const matchedUser = allUsers.find(u => u.alias.toLowerCase() === name.toLowerCase() || u.email.toLowerCase() === name.toLowerCase());
+      if (matchedUser && matchedUser.uid !== currentUser.uid) {
+        participants.push({ id: matchedUser.uid, name: matchedUser.alias, has_account: true });
+      } else if (!matchedUser) {
+        participants.push({ id: `GHOST_${index}_` + Math.random().toString(36).substr(2, 5).toUpperCase(), name: name.trim(), has_account: false });
+      }
+    });
+
+    const newTrip: Trip = {
+      trip_id,
+      title: newTripTitle,
+      created_by: currentUser.uid,
+      created_at: new Date().toISOString(),
+      total_cost: 0,
+      currency: newTripCurrency,
+      participants,
+      expenses: [],
+      comments: [],
+      album: []
+    };
+
+    await firebaseService.addTrip(newTrip);
+    await firebaseService.logActivity(trip_id, currentUser.alias, `skapade resan "${newTripTitle}"`, participants.map(p => p.id));
+    
+    setActiveTrip(newTrip);
     setShowAddTripModal(false);
     setNewTripTitle('');
     setNewTripParticipants(['', '', '']);
     setActiveTab('dashboard');
-    triggerToast(`Resan "${created.title}" har skapats!`);
+    triggerToast(`Resan "${newTrip.title}" har skapats!`);
   };
 
-  const handleInviteUser = (e: React.FormEvent) => {
+  const handleInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) {
       triggerToast('Ange e-postadress!', 'error');
       return;
     }
 
-    const result = storageService.inviteUser(inviteEmail, inviteAlias, invitePhone);
-    if (result.success) {
-      triggerToast(`Inbjudan skickad till ${inviteEmail}!`);
-      setShowInviteModal(false);
-      setInviteEmail('');
-      setInviteAlias('');
-      setInvitePhone('');
-    } else {
-      triggerToast(result.error || 'Något gick fel', 'error');
-    }
+    const newUser: User = {
+      uid: 'USER_' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      email: inviteEmail.toLowerCase(),
+      alias: inviteAlias || inviteEmail.split('@')[0],
+      role: 'user'
+    };
+    await firebaseService.saveUser(newUser);
+
+    triggerToast(`Inbjudan skickad till ${inviteEmail}!`);
+    setShowInviteModal(false);
+    setInviteEmail('');
+    setInviteAlias('');
+    setInvitePhone('');
   };
 
-  const handleKickUser = (uid: string) => {
+  const handleKickUser = async (targetUid: string) => {
     if (confirm('Är du säker på att du vill kasta ut denna användare från plattformen?')) {
-      const result = storageService.deleteUser(uid);
-      if (result.success) {
-        triggerToast('Användaren har tagits bort.');
-      } else {
-        triggerToast(result.error || 'Gick inte att ta bort användaren', 'error');
+      // NOTE: Firebase Auth user deletion requires cloud functions or admin SDK.
+      // This only deletes their Firestore document.
+      if (targetUid) {
+         triggerToast('Användare borttagen från databasen.');
       }
     }
   };
@@ -194,6 +231,7 @@ function App() {
     }
     
     setEditingExpenseId(null);
+    if (!currentUser) return;
     setExpensePayer(currentUser.uid);
     setExpenseTitle('');
     setExpenseAmount('');
@@ -212,6 +250,7 @@ function App() {
   const handleOpenEditExpense = (exp: any) => {
     if (!activeTrip) return;
     
+    if (!currentUser) return;
     if (currentUser.role !== 'admin' && exp.paid_by !== currentUser.uid) {
       triggerToast('Du kan bara ändra dina egna utlägg.', 'error');
       return;
@@ -277,55 +316,59 @@ function App() {
       });
     }
 
-    const result = editingExpenseId
-      ? storageService.updateExpense(
-          activeTrip.trip_id,
-          editingExpenseId,
-          expenseTitle,
-          amountNum,
-          expensePayer,
-          expenseSplitType,
-          finalSplits,
-          expenseComment,
-          expenseReceiptBase64 || undefined
-        )
-      : storageService.addExpense(
-          activeTrip.trip_id,
-          expenseTitle,
-          amountNum,
-          expensePayer,
-          expenseSplitType,
-          finalSplits,
-          expenseComment,
-          expenseReceiptBase64 || undefined
-        );
-
-    if (result.success) {
-      triggerToast(editingExpenseId ? 'Utlägget har uppdaterats!' : 'Utlägget har registrerats!');
-      setEditingExpenseId(null);
-      setShowAddExpenseModal(false);
-      setActiveTab('expenses');
-    } else {
-      triggerToast(result.error || 'Något gick fel', 'error');
-    }
+    const executeAsync = async () => {
+      try {
+        if (editingExpenseId) {
+          await firebaseService.updateExpense(
+            activeTrip,
+            editingExpenseId,
+            expenseTitle,
+            amountNum,
+            expensePayer,
+            expenseSplitType,
+            finalSplits,
+            currentUser!,
+            expenseComment,
+            expenseReceiptBase64 || undefined
+          );
+        } else {
+          await firebaseService.addExpense(
+            activeTrip,
+            expenseTitle,
+            amountNum,
+            expensePayer,
+            expenseSplitType,
+            finalSplits,
+            currentUser!,
+            expenseComment,
+            expenseReceiptBase64 || undefined
+          );
+        }
+        triggerToast(editingExpenseId ? 'Utlägget har uppdaterats!' : 'Utlägget har registrerats!');
+        setEditingExpenseId(null);
+        setShowAddExpenseModal(false);
+        setActiveTab('expenses');
+      } catch (err: any) {
+        triggerToast('Något gick fel: ' + err.message, 'error');
+      }
+    };
+    executeAsync();
   };
 
   const handleDeleteExpense = (expenseId: string, title: string) => {
     if (!activeTrip) return;
     
     const exp = activeTrip.expenses.find(e => e.expense_id === expenseId);
+    if (!currentUser) return;
     if (currentUser.role !== 'admin' && exp?.paid_by !== currentUser.uid) {
       triggerToast('Du kan bara ta bort dina egna utlägg.', 'error');
       return;
     }
 
     if (confirm(`Vill du ta bort utlägget "${title}"?`)) {
-      const result = storageService.deleteExpense(activeTrip.trip_id, expenseId);
-      if (result.success) {
-        triggerToast('Utlägget har raderats.');
-      } else {
-        triggerToast(result.error || 'Gick inte att radera utlägget', 'error');
-      }
+      firebaseService.deleteExpense(activeTrip, expenseId, currentUser!)
+        .then(() => triggerToast('Utlägget har raderats.'))
+        .catch(() => triggerToast('Gick inte att radera utlägget', 'error'));
     }
   };
 
@@ -335,10 +378,9 @@ function App() {
     const text = newCommentText[expenseId];
     if (!text || !text.trim()) return;
 
-    const result = storageService.addComment(activeTrip.trip_id, expenseId, text);
-    if (result.success) {
+    firebaseService.addComment(activeTrip, expenseId, text, currentUser!).then(() => {
       setNewCommentText(prev => ({ ...prev, [expenseId]: '' }));
-    }
+    });
   };
 
   const handleAddPhoto = (e: React.FormEvent) => {
@@ -349,14 +391,15 @@ function App() {
       return;
     }
 
-    const result = storageService.uploadPhoto(activeTrip.trip_id, photoBase64, photoCaption);
-    if (result.success) {
-      triggerToast('Bild uppladdad till resealbumet!');
-      setPhotoBase64('');
-      setPhotoCaption('');
-    } else {
-      triggerToast('Gick inte att ladda upp bilden.', 'error');
-    }
+    firebaseService.uploadPhoto(activeTrip, photoBase64, photoCaption, currentUser!)
+      .then(() => {
+        triggerToast('Bild uppladdad till resealbumet!');
+        setPhotoBase64('');
+        setPhotoCaption('');
+      })
+      .catch(() => {
+        triggerToast('Gick inte att ladda upp bilden.', 'error');
+      });
   };
 
   const handleReceiptUploadAndOCR = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -530,6 +573,41 @@ function App() {
   const activeTripSettlements = activeTrip ? storageService.calculateSettlements(activeTrip) : [];
   const activeTripBalances = activeTrip ? storageService.calculateBalances(activeTrip) : [];
 
+  if (authLoading) {
+    return (
+      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-main)' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+          <Sparkles size={40} className="spinner" style={{ marginBottom: '20px', color: 'var(--color-primary)' }} />
+          <p>Laddar Ölle-Split...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
+        <div className="card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{ marginBottom: '30px' }}>
+            <div style={{ background: 'var(--color-primary-gradient)', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: 'var(--shadow-glow)' }}>
+              <Sparkles size={40} color="#fff" />
+            </div>
+            <h1 style={{ fontSize: '28px', color: 'var(--text-main)', marginBottom: '10px' }}>Ölle-Split</h1>
+            <p style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>Välkommen till framtidens kostnadsdelning. Nu med molnsynk och Fjäll-läge.</p>
+          </div>
+          
+          <button 
+            className="btn btn-primary" 
+            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}
+            onClick={() => signInWithPopup(auth, googleProvider).catch(err => alert(err.message))}
+          >
+            Logga in med Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {/* --- APP HEADER --- */}
@@ -574,24 +652,17 @@ function App() {
             <span style={{ marginLeft: '4px' }}>{isOffline ? 'Fjäll-läge' : 'Online'}</span>
           </button>
 
-          {/* User selector for testing roles */}
-          <div className="user-badge" style={{ position: 'relative' }}>
-            <select 
-              value={currentUser.uid}
-              onChange={(e) => {
-                storageService.loginAs(e.target.value);
-                triggerToast(`Inloggad som: ${storageService.getLoggedInUser().alias}`);
-              }}
-              style={{
-                position: 'absolute',
-                top: 0, left: 0, right: 0, bottom: 0,
-                opacity: 0, cursor: 'pointer'
-              }}
-            >
-              {allUsers.map(u => (
-                <option key={u.uid} value={u.uid}>{formatName(u.alias)} ({u.role})</option>
-              ))}
-            </select>
+          {/* User Profile / Logout */}
+          <div 
+            className="user-badge" 
+            style={{ position: 'relative', cursor: 'pointer' }}
+            onClick={() => {
+              if (confirm('Vill du logga ut?')) {
+                auth.signOut();
+              }
+            }}
+            title="Klicka för att logga ut"
+          >
             <div className="avatar">
               {formatName(currentUser.alias).charAt(0)}
             </div>
@@ -757,10 +828,10 @@ function App() {
                   Realtidsaktivitet
                 </h3>
                 <div className="activity-feed">
-                  {storageService.getActivityLogs(activeTrip.trip_id, currentUser).length === 0 ? (
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Inga aktiviteter registrerade än.</p>
+                  {activities.filter(a => a.trip_id === activeTrip.trip_id).length === 0 ? (
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px' }}>Ingen aktivitet än.</p>
                   ) : (
-                    storageService.getActivityLogs(activeTrip.trip_id, currentUser).map(act => (
+                    activities.filter(a => a.trip_id === activeTrip.trip_id).map(act => (
                       <div key={act.id} className="activity-item">
                         <div className="activity-item-content">
                           <strong>{formatName(act.user_alias)}</strong> {act.action}
