@@ -2,64 +2,123 @@ import Tesseract from 'tesseract.js';
 
 export const ocrService = {
   /**
-   * Main function to process an image and extract the total amount.
-   * Uses Hybrid OCR: Azure (Online) or Tesseract (Offline).
+   * Main function to process an image or PDF and extract the total amount.
+   * Uses Hybrid OCR: Google Cloud Vision (Online) or Tesseract (Offline).
    */
   async processImage(file: File): Promise<number | null> {
     let rawText = '';
+    const isPdf = file.type === 'application/pdf';
 
     if (navigator.onLine) {
       // ONLINE MODE: Google Cloud Vision API
       try {
         const googleVisionKey = import.meta.env.VITE_GOOGLE_VISION_API_KEY;
         if (googleVisionKey) {
-          // Convert file to base64
-          const base64Image = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-              const result = reader.result as string;
-              // Remove data URI prefix (e.g. "data:image/jpeg;base64,")
-              resolve(result.split(',')[1]);
-            };
-            reader.onerror = error => reject(error);
-          });
-
-          const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${googleVisionKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              requests: [
-                {
-                  image: { content: base64Image },
-                  features: [{ type: 'TEXT_DETECTION' }]
-                }
-              ]
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const textAnnotations = data.responses?.[0]?.textAnnotations;
-            rawText = textAnnotations && textAnnotations.length > 0 ? textAnnotations[0].description : '';
-          } else {
-            console.warn('Google Cloud Vision failed, falling back to Tesseract');
+          if (isPdf) {
+            // For PDFs, render page 1 to canvas then treat as image
+            const imageFile = await this.pdfToImageFile(file);
+            if (imageFile) {
+              return this.processImage(imageFile);
+            }
+            // If PDF rendering fails, try Tesseract on original (won't work well but better than nothing)
             rawText = await this.runTesseractOffline(file);
+          } else {
+            // Convert image file to base64
+            const base64Image = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.readAsDataURL(file);
+              reader.onload = () => {
+                const result = reader.result as string;
+                resolve(result.split(',')[1]);
+              };
+              reader.onerror = error => reject(error);
+            });
+
+            const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${googleVisionKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                requests: [
+                  {
+                    image: { content: base64Image },
+                    features: [{ type: 'TEXT_DETECTION' }]
+                  }
+                ]
+              }),
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              const textAnnotations = data.responses?.[0]?.textAnnotations;
+              rawText = textAnnotations && textAnnotations.length > 0 ? textAnnotations[0].description : '';
+            } else {
+              console.warn('Google Cloud Vision failed, falling back to Tesseract');
+              rawText = await this.runTesseractOffline(file);
+            }
           }
         } else {
-          // No API key configured, use offline as fallback
-          rawText = await this.runTesseractOffline(file);
+          // No API key: render PDF to image first, then run Tesseract
+          if (isPdf) {
+            const imageFile = await this.pdfToImageFile(file);
+            rawText = await this.runTesseractOffline(imageFile || file);
+          } else {
+            rawText = await this.runTesseractOffline(file);
+          }
         }
       } catch (err) {
-        console.error('Network error calling Google Vision OCR, falling back to Tesseract', err);
+        console.error('OCR error, falling back to Tesseract', err);
         rawText = await this.runTesseractOffline(file);
       }
     } else {
-      // OFFLINE MODE: Tesseract.js
-      rawText = await this.runTesseractOffline(file);
+      // OFFLINE MODE: Tesseract.js (render PDF to image first)
+      if (isPdf) {
+        const imageFile = await this.pdfToImageFile(file);
+        rawText = await this.runTesseractOffline(imageFile || file);
+      } else {
+        rawText = await this.runTesseractOffline(file);
+      }
     }
 
     return this.parseReceiptTotal(rawText);
+  },
+
+  /**
+   * Render the first page of a PDF to a PNG File using the browser's built-in PDF renderer.
+   * Uses dynamic import of pdfjs-dist.
+   */
+  async pdfToImageFile(pdfFile: File): Promise<File | null> {
+    try {
+      // Dynamically load pdfjs-dist so it doesn't bloat the main bundle
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+      const arrayBuffer = await pdfFile.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const page = await pdf.getPage(1);
+
+      const scale = 2.0; // High-res for better OCR
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
+
+      await page.render({ canvasContext: ctx as any, canvas, viewport } as any).promise;
+
+      // Convert canvas to blob/File
+      return new Promise<File | null>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(new File([blob], 'pdf-page.png', { type: 'image/png' }));
+          } else {
+            resolve(null);
+          }
+        }, 'image/png');
+      });
+    } catch (err) {
+      console.error('PDF rendering failed:', err);
+      return null;
+    }
   },
 
   /**

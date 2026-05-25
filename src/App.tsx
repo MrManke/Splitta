@@ -286,7 +286,7 @@ function App() {
     if (!activeTrip) return;
     
     if (!currentUser) return;
-    if (currentUser.role !== 'admin' && exp.paid_by !== currentUser.uid) {
+    if (currentUser.role === 'user' && exp.paid_by !== currentUser.uid) {
       triggerToast('Du kan bara ändra dina egna utlägg.', 'error');
       return;
     }
@@ -395,7 +395,7 @@ function App() {
     
     const exp = activeTrip.expenses.find(e => e.expense_id === expenseId);
     if (!currentUser) return;
-    if (currentUser.role !== 'admin' && exp?.paid_by !== currentUser.uid) {
+    if (currentUser.role === 'user' && exp?.paid_by !== currentUser.uid) {
       triggerToast('Du kan bara ta bort dina egna utlägg.', 'error');
       return;
     }
@@ -465,14 +465,22 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setExpenseReceiptBase64(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    const isPdf = file.type === 'application/pdf';
+
+    // For images: show preview immediately. For PDFs: show a PDF icon placeholder
+    if (!isPdf) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setExpenseReceiptBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Store a flag so we know it's a PDF (will be replaced with rendered image after OCR)
+      setExpenseReceiptBase64('PDF:' + file.name);
+    }
 
     setIsOcrScanning(true);
-    triggerToast('Skannar kvitto offline med OCR...', 'success');
+    triggerToast(isPdf ? 'Renderar PDF och kör OCR...' : 'Skannar kvitto med OCR...', 'success');
 
     try {
       const detectedAmount = await ocrService.processImage(file);
@@ -1110,7 +1118,18 @@ function App() {
                           {exp.receipt_url && (
                             <div>
                               <span className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Kvitto</span>
-                              <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" />
+                              {exp.receipt_url.startsWith('PDF:') ? (
+                                <div style={{ 
+                                  display: 'flex', alignItems: 'center', gap: '8px', 
+                                  background: 'rgba(255,255,255,0.05)', borderRadius: 'var(--radius-sm)',
+                                  padding: '10px 12px', fontSize: '13px', color: 'var(--text-secondary)'
+                                }}>
+                                  <FileText size={20} style={{ color: 'var(--color-primary-light)', flexShrink: 0 }} />
+                                  <span>{exp.receipt_url.replace('PDF:', '')}</span>
+                                </div>
+                              ) : (
+                                <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" />
+                              )}
                             </div>
                           )}
 
@@ -1172,7 +1191,7 @@ function App() {
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                            { (currentUser.role === 'admin' || exp.paid_by === currentUser.uid) && (
+                            { (currentUser.role !== 'user' || exp.paid_by === currentUser.uid) && (
                               <>
                                 <button 
                                   className="btn btn-secondary btn-sm"
@@ -1398,7 +1417,7 @@ function App() {
         {/* --- VIEW: GLOBAL ADMINISTRATION --- */}
         {activeTab === 'admin' && (
           <>
-            {currentUser.role !== 'admin' ? (
+            {currentUser.role === 'user' ? (
               <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--color-danger)' }}>
                 <Shield size={48} style={{ margin: '0 auto 12px' }} />
                 <h3>Åtkomst nekas</h3>
@@ -1740,14 +1759,14 @@ function App() {
                     style={{ marginTop: '10px' }}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    Välj kvitto-bild
+                    Välj kvitto (bild eller PDF)
                   </button>
                 </>
               )}
               <input 
                 type="file" 
                 ref={fileInputRef}
-                accept="image/*"
+                accept="image/*,application/pdf"
                 onChange={handleReceiptUploadAndOCR}
                 style={{ display: 'none' }}
               />
