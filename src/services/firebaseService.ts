@@ -73,9 +73,11 @@ export const firebaseService = {
       split_type,
       splits,
       comment,
-      receipt_url: receipt_url === null ? undefined : receipt_url,
       created_at: new Date().toISOString()
     };
+    if (receipt_url) {
+      newExpense.receipt_url = receipt_url;
+    }
 
     const updatedExpenses = [...trip.expenses, newExpense];
     const total_cost = updatedExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -100,11 +102,21 @@ export const firebaseService = {
   ): Promise<void> {
     const updatedExpenses = trip.expenses.map(e => {
       if (e.expense_id === expense_id) {
-        return {
+        const updatedExpense: Expense = {
           ...e,
-          title, amount, paid_by, split_type, splits, comment,
-          receipt_url: receipt_url === null ? undefined : (receipt_url !== undefined ? receipt_url : e.receipt_url)
+          title,
+          amount,
+          paid_by,
+          split_type,
+          splits,
+          comment,
         };
+        if (receipt_url) {
+          updatedExpense.receipt_url = receipt_url;
+        } else if (receipt_url === null) {
+          delete updatedExpense.receipt_url;
+        }
+        return updatedExpense;
       }
       return e;
     });

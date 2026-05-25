@@ -233,9 +233,9 @@ a:hover {
 }
 
 .btn-danger {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--color-danger);
 }
 
 .btn-danger:hover {
@@ -243,7 +243,6 @@ a:hover {
   color: #fff;
   border-color: transparent;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
 .btn-icon-only {

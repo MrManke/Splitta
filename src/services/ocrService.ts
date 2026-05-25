@@ -159,12 +159,6 @@ export const ocrService = {
     // Remove dates (YYYY-MM-DD or YY-MM-DD)
     text = text.replace(/\d{2,4}-\d{2}-\d{2}/g, '');
 
-    // STEP B: Keyword matching
-    const keywords = ['total', 'att betala', 'summa', 'belopp', 'sek', 'eur', 'totalt'];
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    
-    let candidateAmounts: number[] = [];
-
     // Helper to extract all valid currency amounts from a string
     const extractAmounts = (str: string): number[] => {
       // Matches 123.45, 123,45, 123.00, etc.
@@ -174,48 +168,25 @@ export const ocrService = {
       return matches.map(m => parseFloat(m.replace(',', '.')));
     };
 
-    // STEP C: Filtering (Proximity Principle)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const hasKeyword = keywords.some(kw => line.includes(kw));
-      
-      if (hasKeyword) {
-        // Check amounts on the SAME line
-        candidateAmounts.push(...extractAmounts(line));
-        
-        // Check amounts on the NEXT line (often totals are printed on the next line)
-        if (i + 1 < lines.length) {
-          candidateAmounts.push(...extractAmounts(lines[i + 1]));
-        }
-      }
-    }
-
-    // Filter out candidates that are 0
-    candidateAmounts = candidateAmounts.filter(a => a > 0);
-
-    if (candidateAmounts.length > 0) {
-      // Highest reasonable amount principle
-      return Math.max(...candidateAmounts);
-    }
-
-    // STEP C2: Last-Value Principle
-    // If no keyword was found or no amounts near keywords, we look at ALL amounts in the receipt.
-    // The total is almost always the highest number at the bottom of the receipt.
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    // STEP B: Collect ALL valid amounts from the entire receipt
     let allAmounts: number[] = [];
     lines.forEach(line => {
-      // Exclude lines with "moms" or "kvar" if we are blindly grabbing the last value
-      if (!line.includes('moms') && !line.includes('kvar')) {
-        allAmounts.push(...extractAmounts(line));
-      }
+      // Exclude strings that look like typical phone numbers or weights if needed, but the regex already forces .XX
+      allAmounts.push(...extractAmounts(line));
     });
 
-    if (allAmounts.length > 0) {
-      // The last few amounts on a receipt are usually Total, Cash, Change.
-      // We take the max of the last 3 amounts found.
-      const lastFew = allAmounts.slice(-3);
-      return Math.max(...lastFew);
+    allAmounts = allAmounts.filter(a => a > 0);
+
+    if (allAmounts.length === 0) {
+      return null;
     }
 
-    return null;
+    // STEP C: Highest Amount Principle
+    // On a receipt, the total is almost universally the highest currency amount with 2 decimals.
+    // By simply taking the max of all found amounts, we avoid issues where OCR misreads keywords 
+    // or grabs "Moms 6.74" instead of "Brutto 119.00".
+    return Math.max(...allAmounts);
   }
 };

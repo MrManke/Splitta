@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Trash2, Users, Image as ImageIcon, FileText, CreditCard, 
   Share2, Camera, Upload, Shield, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, ChevronUp, Check, Sparkles, Send
+  Wifi, WifiOff, ChevronDown, ChevronUp, Check, Sparkles, Send, ArrowLeft
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import html2canvas from 'html2canvas';
@@ -770,7 +770,7 @@ function App() {
             <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <input 
                 type="email" 
-                className="input" 
+                className="input-field" 
                 placeholder="E-postadress" 
                 value={emailLogin} 
                 onChange={e => setEmailLogin(e.target.value)} 
@@ -831,7 +831,7 @@ function App() {
           <form onSubmit={handleSavePhone} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <input 
               type="tel" 
-              className="input" 
+              className="input-field" 
               placeholder="Ex: 0701234567" 
               value={phonePromptInput} 
               onChange={e => setPhonePromptInput(e.target.value)} 
@@ -1014,7 +1014,7 @@ function App() {
                   <div 
                     key={t.trip_id} 
                     className={`card card-hover expense-item ${activeTrip?.trip_id === t.trip_id ? 'active-trip' : ''}`}
-                    onClick={() => setActiveTrip(t)}
+                    onClick={() => { setActiveTrip(t); setActiveTab('expenses'); }}
                     style={{
                       borderLeft: activeTrip?.trip_id === t.trip_id ? '4px solid var(--color-primary)' : '1px solid var(--border-color)',
                       cursor: 'pointer'
@@ -1038,88 +1038,53 @@ function App() {
                 ))}
               </div>
             )}
-
-            {/* Selected Trip Details summary */}
-            {activeTrip && (
-              <div className="card" style={{ background: 'var(--bg-card)', textAlign: 'left', marginBottom: '20px' }}>
-                <h3 style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                  Resans deltagare
-                </h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {activeTrip.participants.map(p => (
-                    <span 
-                      key={p.id}
-                      style={{
-                        padding: '6px 12px',
-                        background: p.has_account ? 'var(--bg-glow)' : 'var(--bg-card-hover)',
-                        border: '1px solid',
-                        borderColor: p.has_account ? 'var(--color-primary-light)' : 'var(--border-color)',
-                        borderRadius: 'var(--radius-full)',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: p.has_account ? 'var(--text-primary)' : 'var(--text-secondary)'
-                      }}
-                    >
-                      {formatName(p.name)} {p.id === activeTrip.created_by && '👑'} {!p.has_account && '👻'}
-                    </span>
-                  ))}
-                </div>
-
-                <div style={{ marginTop: '20px', marginBottom: '8px' }}>
-                  <button 
-                    className="btn btn-primary" 
-                    style={{ width: '100%', padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center' }} 
-                    onClick={() => { setActiveTab('expenses'); handleOpenAddExpense(); }}
-                  >
-                    <Plus size={18} style={{ marginRight: '6px' }} /> Skapa nytt utlägg
-                  </button>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginTop: '12px' }}>
-                    <button className="btn btn-secondary" onClick={() => setActiveTab('expenses')} style={{ fontSize: '13px', padding: '8px' }}>
-                      <CreditCard size={14} style={{ marginRight: '4px' }} /> Utlägg
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setActiveTab('debts')} style={{ fontSize: '13px', padding: '8px' }}>
-                      <Users size={14} style={{ marginRight: '4px' }} /> Avräkning
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setActiveTab('album')} style={{ fontSize: '13px', padding: '8px' }}>
-                      <ImageIcon size={14} style={{ marginRight: '4px' }} /> Album
-                    </button>
-                  </div>
-                </div>
-
-                <h3 style={{ marginTop: '24px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                  Realtidsaktivitet
-                </h3>
-                <div className="activity-feed">
-                  {activities.filter(a => a.trip_id === activeTrip.trip_id).length === 0 ? (
-                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px' }}>Ingen aktivitet än.</p>
-                  ) : (
-                    activities.filter(a => a.trip_id === activeTrip.trip_id).map(act => (
-                      <div key={act.id} className="activity-item">
-                        <div className="activity-item-content">
-                          <strong>{formatName(act.user_alias)}</strong> {act.action}
-                        </div>
-                        <div className="activity-item-time">{new Date(act.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
           </>
+        )}
+
+        {/* --- COMMON TRIP HEADER (Mini-dashboard) --- */}
+        {activeTrip && activeTab !== 'dashboard' && (
+          <div className="card" style={{ marginBottom: '20px', background: 'var(--bg-card)', position: 'relative', paddingTop: '36px' }}>
+            <button 
+              className="btn btn-secondary btn-sm" 
+              style={{ position: 'absolute', top: '12px', left: '12px', border: 'none', background: 'transparent', padding: '4px 8px' }}
+              onClick={() => { setActiveTrip(null); setActiveTab('dashboard'); }}
+            >
+              <ArrowLeft size={16} style={{ marginRight: '4px' }} /> Alla resor
+            </button>
+            {(currentUser.uid === activeTrip.created_by || currentUser.role === 'superadmin') && (
+              <button 
+                className="btn btn-danger btn-sm" 
+                style={{ position: 'absolute', top: '12px', right: '12px', padding: '6px' }}
+                onClick={() => {
+                  if(confirm(`Är du helt säker på att du vill radera resan "${activeTrip.title}" och ALLA dess utlägg? Detta går inte att ångra.`)) {
+                    firebaseService.deleteTrip(activeTrip.trip_id).then(() => {
+                      setActiveTrip(null);
+                      setActiveTab('dashboard');
+                    });
+                  }
+                }}
+                title="Ta bort resa"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+
+            <div style={{ textAlign: 'center' }}>
+              <h2 style={{ fontSize: '24px', marginBottom: '4px' }}>{activeTrip.title}</h2>
+              <div style={{ fontSize: '28px', fontWeight: '900', color: 'var(--color-primary-light)', marginBottom: '4px' }}>
+                {activeTrip.total_cost} <span style={{ fontSize: '16px', fontWeight: '600' }}>{activeTrip.currency}</span>
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                {activeTrip.expenses.length} utlägg registrerade • {activeTrip.participants.length} deltagare
+              </p>
+            </div>
+          </div>
         )}
 
         {/* --- VIEW: EXPENSES --- */}
         {activeTab === 'expenses' && activeTrip && (
           <>
-            <div className="dashboard-balance-card">
-              <span className="dashboard-balance-label">Totala utlägg ({activeTrip.title})</span>
-              <div className="dashboard-balance-value">
-                {activeTrip.total_cost} <span style={{ fontSize: '20px' }}>{activeTrip.currency}</span>
-              </div>
-              <span className="dashboard-balance-sub">
-                {activeTrip.expenses.length} utlägg registrerade
-              </span>
-            </div>
+
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2>Utgiftslista</h2>
@@ -1574,6 +1539,29 @@ function App() {
           </button>
         </div>
 
+        {/* --- COMMON TRIP FOOTER (Realtime Activity) --- */}
+        {activeTrip && activeTab !== 'dashboard' && (
+          <div className="card" style={{ background: 'var(--bg-card)', marginTop: '24px', marginBottom: '80px' }}>
+            <h3 style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+              Realtidsaktivitet
+            </h3>
+            <div className="activity-feed">
+              {activities.filter(a => a.trip_id === activeTrip.trip_id).length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px' }}>Ingen aktivitet än.</p>
+              ) : (
+                activities.filter(a => a.trip_id === activeTrip.trip_id).map(act => (
+                  <div key={act.id} className="activity-item">
+                    <div className="activity-item-content">
+                      <strong>{formatName(act.user_alias)}</strong> {act.action}
+                    </div>
+                    <div className="activity-item-time">{new Date(act.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
       </main>
 
       {/* --- APP FOOTER / BOTTOM NAV TABS --- */}
@@ -1623,6 +1611,7 @@ function App() {
             <span>Admin</span>
           </button>
         )}
+
       </footer>
 
       {/* --- MODAL: EDIT USER --- */}
@@ -1638,7 +1627,7 @@ function App() {
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Alias / Namn</label>
                 <input 
                   type="text" 
-                  className="input" 
+                  className="input-field" 
                   value={editingUser.alias} 
                   onChange={e => setEditingUser({ ...editingUser, alias: e.target.value })} 
                   required 
@@ -1648,7 +1637,7 @@ function App() {
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Telefonnummer (För Swish)</label>
                 <input 
                   type="tel" 
-                  className="input" 
+                  className="input-field" 
                   value={getSwishPhone(editingUser.phone) || ''} 
                   onChange={e => setEditingUser({ ...editingUser, phone: e.target.value || 'NOPHONE' })} 
                 />
@@ -1656,7 +1645,7 @@ function App() {
               <div>
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Roll</label>
                 <select 
-                  className="input" 
+                  className="input-field" 
                   value={editingUser.role} 
                   onChange={e => setEditingUser({ ...editingUser, role: e.target.value as any })}
                 >
@@ -1672,7 +1661,7 @@ function App() {
                     <div key={i} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       <input 
                         type="email" 
-                        className="input" 
+                        className="input-field" 
                         style={{ flex: 1 }}
                         value={em} 
                         onChange={e => {
@@ -2163,7 +2152,7 @@ function App() {
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Mottagarens Swish-nummer</label>
                 <input 
                   type="tel" 
-                  className="input" 
+                  className="input-field" 
                   style={{ textAlign: 'center', fontWeight: 'bold' }}
                   value={swishPhoneInput}
                   onChange={e => setSwishPhoneInput(e.target.value)}
