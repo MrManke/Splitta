@@ -323,6 +323,7 @@ function App() {
       initialSplits[p.id] = 1;
     });
     setExpenseSplits(initialSplits);
+    setExpenseReceiptBase64('');
     setShowAddExpenseModal(true);
   };
 
@@ -515,12 +516,14 @@ function App() {
     triggerToast(isPdf ? 'Renderar PDF och kör OCR...' : 'Skannar kvitto med OCR...', 'success');
 
     try {
+      let fileToProcess = file;
       if (isPdf) {
         // For PDFs: convert to image first so we can save it visually
         const renderedImage = await ocrService.pdfToImageFile(file);
         if (renderedImage) {
           const compressed = await compressImage(renderedImage);
           setExpenseReceiptBase64(compressed);
+          fileToProcess = renderedImage; // Pass the rendered image to OCR
         } else {
           setExpenseReceiptBase64('PDF:' + file.name); // fallback
         }
@@ -530,7 +533,7 @@ function App() {
         setExpenseReceiptBase64(compressed);
       }
 
-      const detectedAmount = await ocrService.processImage(file);
+      const detectedAmount = await ocrService.processImage(fileToProcess);
       setIsOcrScanning(false);
       
       if (detectedAmount !== null) {
