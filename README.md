@@ -15,6 +15,8 @@ En modern webbapplikation för att dela upp kostnader under resor och äventyr. 
 ## Teknikstack
 
 - **Frontend**: React, TypeScript, Vite
+- **Backend & Databas**: Firebase (Firestore) & Firebase Authentication (E-post/Magic Link)
+- **AI/OCR**: Google Cloud Vision API (`DOCUMENT_TEXT_DETECTION`)
 - **Styling**: Vanilla CSS (med variabler och themes)
 - **Ikoner**: Lucide React
 - **Export**: html2canvas & jspdf
@@ -25,7 +27,16 @@ En modern webbapplikation för att dela upp kostnader under resor och äventyr. 
 1. Klona repot
 2. Installera beroenden:
    `npm install`
-3. Starta servern:
+3. Konfigurera Firebase:
+   - Skapa en `.env`-fil i rooten och lägg in dina Firebase-nycklar:
+     ```
+     VITE_FIREBASE_API_KEY=...
+     VITE_FIREBASE_AUTH_DOMAIN=...
+     VITE_FIREBASE_PROJECT_ID=...
+     VITE_FIREBASE_STORAGE_BUCKET=...
+     VITE_FIREBASE_MESSAGING_SENDER_ID=...
+     VITE_FIREBASE_APP_ID=...
+     VITE_GOOGLE_VISION_API_KEY=...
+     ```
+4. Starta servern:
    `npm run dev`
-
-All data sparas lokalt i webbläsaren (localStorage) tills en extern databas kopplas på.

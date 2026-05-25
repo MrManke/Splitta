@@ -61,7 +61,7 @@ export const firebaseService = {
     splits: { [participantId: string]: number },
     currentUser: User,
     comment?: string,
-    receipt_url?: string
+    receipt_url?: string | null
   ): Promise<void> {
     const expense_id = 'EXP_' + Math.random().toString(36).substr(2, 9).toUpperCase();
     const newExpense: Expense = {
@@ -73,7 +73,7 @@ export const firebaseService = {
       split_type,
       splits,
       comment,
-      receipt_url,
+      receipt_url: receipt_url === null ? undefined : receipt_url,
       created_at: new Date().toISOString()
     };
 
@@ -96,14 +96,14 @@ export const firebaseService = {
     splits: { [participantId: string]: number },
     currentUser: User,
     comment?: string,
-    receipt_url?: string
+    receipt_url?: string | null
   ): Promise<void> {
     const updatedExpenses = trip.expenses.map(e => {
       if (e.expense_id === expense_id) {
         return {
           ...e,
           title, amount, paid_by, split_type, splits, comment,
-          receipt_url: receipt_url !== undefined ? receipt_url : e.receipt_url
+          receipt_url: receipt_url === null ? undefined : (receipt_url !== undefined ? receipt_url : e.receipt_url)
         };
       }
       return e;

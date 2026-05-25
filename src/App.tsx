@@ -407,7 +407,7 @@ function App() {
             finalSplits,
             currentUser!,
             expenseComment,
-            expenseReceiptBase64 || undefined
+            expenseReceiptBase64 === '' ? null : expenseReceiptBase64
           );
         } else {
           await firebaseService.addExpense(
@@ -419,7 +419,7 @@ function App() {
             finalSplits,
             currentUser!,
             expenseComment,
-            expenseReceiptBase64 || undefined
+            expenseReceiptBase64 === '' ? null : expenseReceiptBase64
           );
         }
         triggerToast(editingExpenseId ? 'Utlägget har uppdaterats!' : 'Utlägget har registrerats!');
@@ -510,27 +510,39 @@ function App() {
 
     const isPdf = file.type === 'application/pdf';
 
-    // For images: show compressed preview immediately. For PDFs: show a PDF icon placeholder
-    if (!isPdf) {
-      compressImage(file).then(base64 => {
-        setExpenseReceiptBase64(base64);
-      }).catch(err => console.error('Compression failed:', err));
-    } else {
-      // Store a flag so we know it's a PDF (will be replaced with rendered image after OCR)
-      setExpenseReceiptBase64('PDF:' + file.name);
-    }
-
     setIsOcrScanning(true);
     triggerToast(isPdf ? 'Renderar PDF och kör OCR...' : 'Skannar kvitto med OCR...', 'success');
 
     try {
+      if (isPdf) {
+        // For PDFs: convert to image first so we can save it visually
+        const renderedImage = await ocrService.pdfToImageFile(file);
+        if (renderedImage) {
+          const compressed = await compressImage(renderedImage);
+          setExpenseReceiptBase64(compressed);
+        } else {
+          setExpenseReceiptBase64('PDF:' + file.name); // fallback
+        }
+      } else {
+        // Compress images before converting to base64 to avoid Firestore 1MB limits
+        const compressed = await compressImage(file);
+        setExpenseReceiptBase64(compressed);
+      }
+
       const detectedAmount = await ocrService.processImage(file);
       setIsOcrScanning(false);
       
       if (detectedAmount !== null) {
         if (expenseAmount && parseFloat(expenseAmount) !== detectedAmount) {
-          setExpenseAmount(detectedAmount.toString());
-          triggerToast(`Beloppet uppdaterades till det skannade: ${detectedAmount} kr! Kvitto bifogat.`, 'success');
+          const useScanned = confirm(
+            `AI-OCR hittade ${detectedAmount} kr på kvittot.\nDu har redan skrivit ${expenseAmount} kr.\n\nTryck OK för att använda ${detectedAmount} kr,\neller Avbryt för att behålla ${expenseAmount} kr.`
+          );
+          if (useScanned) {
+            setExpenseAmount(detectedAmount.toString());
+            triggerToast(`Belopp ändrat till ${detectedAmount} kr. Kvitto bifogat.`, 'success');
+          } else {
+            triggerToast(`Behåller ${expenseAmount} kr. Kvitto bifogat.`, 'success');
+          }
         } else {
           setExpenseAmount(detectedAmount.toString());
           triggerToast(`Hittade belopp: ${detectedAmount} kr! Kvitto bifogat.`, 'success');
@@ -567,7 +579,7 @@ function App() {
       csv += `"${e.title}",${e.amount},"${payerName}","${e.split_type === 'equal' ? 'Lika delning' : 'Procentuell'}","${e.created_at.slice(0, 10)}"\n`;
     });
     
-    csv += `\nSkulder & Regleringar\n`;
+    csv += `\nAvräkning\n`;
     const settlements = storageService.calculateSettlements(activeTrip);
     settlements.forEach(s => {
       csv += `"${s.fromName}","ska betala",${s.amount},"till","${s.toName}"\n`;
@@ -742,7 +754,7 @@ function App() {
             Logga in med Google
           </button>
 
-          <div style={{ margin: '20px 0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}></div>
+          <div style={{ width: '100%', borderBottom: '1px solid var(--border-color)', margin: '20px 0' }}></div>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '15px' }}>Eller logga in utan lösenord</p>
 
           {emailLinkSent ? (
@@ -915,15 +927,15 @@ function App() {
 
         {/* --- GLOBAL TRIP CONTEXT BANNER --- */}
         {activeTab !== 'dashboard' && activeTrip && (
-          <div className="trip-context-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-primary-gradient)', color: '#fff', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', boxShadow: 'var(--shadow-glow)' }}>
+          <div className="trip-context-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-primary-gradient)', color: 'var(--text-primary)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', boxShadow: 'var(--shadow-glow)' }}>
             <div>
               <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8, marginBottom: '2px' }}>Aktiv Resa</div>
-              <h2 style={{ fontSize: '18px', margin: 0, color: '#fff' }}>{activeTrip.title}</h2>
+              <h2 style={{ fontSize: '18px', margin: 0, color: 'var(--text-primary)' }}>{activeTrip.title}</h2>
             </div>
             <div style={{ position: 'relative' }}>
               <button 
                 className="btn btn-sm" 
-                style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: 'none' }}
+                style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none' }}
                 onClick={() => setShowTripDropdown(!showTripDropdown)}
               >
                 Byt Resa
@@ -1027,7 +1039,7 @@ function App() {
 
             {/* Selected Trip Details summary */}
             {activeTrip && (
-              <div className="card" style={{ background: 'rgba(255,255,255,0.01)', textAlign: 'left' }}>
+              <div className="card" style={{ background: 'var(--bg-card)', textAlign: 'left', marginBottom: '20px' }}>
                 <h3 style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
                   Resans deltagare
                 </h3>
@@ -1037,7 +1049,7 @@ function App() {
                       key={p.id}
                       style={{
                         padding: '6px 12px',
-                        background: p.has_account ? 'var(--bg-glow)' : 'rgba(255,255,255,0.05)',
+                        background: p.has_account ? 'var(--bg-glow)' : 'var(--bg-card-hover)',
                         border: '1px solid',
                         borderColor: p.has_account ? 'var(--color-primary-light)' : 'var(--border-color)',
                         borderRadius: 'var(--radius-full)',
@@ -1059,6 +1071,17 @@ function App() {
                   >
                     <Plus size={18} style={{ marginRight: '6px' }} /> Skapa nytt utlägg
                   </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginTop: '12px' }}>
+                    <button className="btn btn-secondary" onClick={() => setActiveTab('expenses')} style={{ fontSize: '13px', padding: '8px' }}>
+                      <CreditCard size={14} style={{ marginRight: '4px' }} /> Utlägg
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setActiveTab('debts')} style={{ fontSize: '13px', padding: '8px' }}>
+                      <Users size={14} style={{ marginRight: '4px' }} /> Avräkning
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setActiveTab('album')} style={{ fontSize: '13px', padding: '8px' }}>
+                      <ImageIcon size={14} style={{ marginRight: '4px' }} /> Album
+                    </button>
+                  </div>
                 </div>
 
                 <h3 style={{ marginTop: '24px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
@@ -1167,7 +1190,7 @@ function App() {
                               {exp.receipt_url.startsWith('PDF:') ? (
                                 <div style={{ 
                                   display: 'flex', alignItems: 'center', gap: '8px', 
-                                  background: 'rgba(255,255,255,0.05)', borderRadius: 'var(--radius-sm)',
+                                  background: 'var(--bg-card-hover)', borderRadius: 'var(--radius-sm)',
                                   padding: '10px 12px', fontSize: '13px', color: 'var(--text-secondary)'
                                 }}>
                                   <FileText size={20} style={{ color: 'var(--color-primary-light)', flexShrink: 0 }} />
@@ -1202,7 +1225,7 @@ function App() {
                           </div>
 
                           {exp.comment && (
-                            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: 'var(--radius-sm)', fontSize: '13px' }}>
+                            <div style={{ background: 'var(--bg-card)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
                               <strong>Kommentar:</strong> {exp.comment}
                             </div>
                           )}
@@ -1267,8 +1290,8 @@ function App() {
         {/* --- VIEW: DEBTS / SETTLEMENT --- */}
         {activeTab === 'debts' && activeTrip && (
           <>
-            <h2>Skuldomräkning & Reglering</h2>
-            <div className="card" style={{ marginBottom: '16px', padding: '16px', background: 'rgba(255,255,255,0.02)' }}>
+            <h2>Avräkning & Reglering</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', marginBottom: '8px' }}>
               <div 
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                 onClick={() => setExpandedExpense(expandedExpense === 'debts_detail' ? null : 'debts_detail')}
@@ -1386,7 +1409,7 @@ function App() {
               </span>
             </div>
 
-            <form onSubmit={handleAddPhoto} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(255,255,255,0.01)' }}>
+            <form onSubmit={handleAddPhoto} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <button 
                   type="button" 
@@ -1492,7 +1515,7 @@ function App() {
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           padding: '10px 14px',
-                          background: 'rgba(255,255,255,0.02)',
+                          background: 'var(--bg-card)',
                           border: '1px solid var(--border-color)',
                           borderRadius: 'var(--radius-md)'
                         }}
@@ -1581,7 +1604,7 @@ function App() {
               onClick={() => setActiveTab('debts')}
             >
               <Users className="nav-tab-icon" />
-              <span>Skulder</span>
+              <span>Avräkning</span>
             </button>
 
             <button 
@@ -1865,7 +1888,7 @@ function App() {
               padding: '16px', 
               textAlign: 'center', 
               marginBottom: '18px',
-              background: 'rgba(255,255,255,0.01)',
+              background: 'var(--bg-card)',
               position: 'relative'
             }}>
               {isOcrScanning ? (
@@ -2013,7 +2036,7 @@ function App() {
 
               <div className="form-group">
                 <label className="form-label">Vilka ingår i splitten?</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-input)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
                   {(() => {
                     const parsedAmount = parseFloat(expenseAmount) || 0;
                     const checkedCount = Object.keys(expenseSplits).filter(pId => expenseSplits[pId] > 0).length;
@@ -2080,9 +2103,22 @@ function App() {
                 />
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '14px' }}>
-                {editingExpenseId ? 'Spara ändringar' : 'Registrera utlägg'}
-              </button>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setShowAddExpenseModal(false);
+                    setEditingExpenseId(null);
+                  }}
+                >
+                  Avbryt
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                  {editingExpenseId ? 'Spara ändringar' : 'Registrera utlägg'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

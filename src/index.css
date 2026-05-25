@@ -34,6 +34,8 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
   --shadow-glow: 0 0 20px rgba(14, 165, 233, 0.25);
+  --shadow-primary: 0 4px 15px rgba(14, 165, 233, 0.35);
+  --shadow-primary-hover: 0 4px 20px rgba(14, 165, 233, 0.5);
   --bg-glow: rgba(14, 165, 233, 0.08);
   
   --transition-fast: 0.15s ease;
@@ -55,6 +57,8 @@
   --color-primary-light: #c084fc;
   --color-primary-gradient: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
   --shadow-glow: 0 0 20px rgba(168, 85, 247, 0.25);
+  --shadow-primary: 0 4px 15px rgba(168, 85, 247, 0.35);
+  --shadow-primary-hover: 0 4px 20px rgba(168, 85, 247, 0.5);
   --bg-glow: rgba(168, 85, 247, 0.08);
 }
 
@@ -68,6 +72,8 @@
   --color-primary-light: #f3f4f6;
   --color-primary-gradient: linear-gradient(135deg, #ffffff 0%, #64748b 100%);
   --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.15);
+  --shadow-primary: 0 4px 15px rgba(255, 255, 255, 0.15);
+  --shadow-primary-hover: 0 4px 20px rgba(255, 255, 255, 0.25);
   --bg-glow: rgba(255, 255, 255, 0.05);
 }
 
@@ -198,12 +204,12 @@ a:hover {
 .btn-primary {
   background: var(--color-primary-gradient);
   color: #fff;
-  box-shadow: 0 4px 15px rgba(168, 85, 247, 0.35);
+  box-shadow: var(--shadow-primary);
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.5), var(--shadow-glow);
+  box-shadow: var(--shadow-primary-hover), var(--shadow-glow);
 }
 
 .btn-primary:active {
@@ -211,14 +217,14 @@ a:hover {
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-card-hover);
+  border-color: var(--border-color-active);
   transform: translateY(-2px);
 }
 
@@ -369,7 +375,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-card);
   padding: 6px 12px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
@@ -378,7 +384,7 @@ a:hover {
 }
 
 .user-badge:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card-hover);
 }
 
 .avatar {
@@ -477,7 +483,7 @@ a:hover {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-card);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--color-primary-light);
@@ -557,7 +563,7 @@ a:hover {
 }
 
 .expense-icon {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-card);
   color: var(--color-primary-light);
   width: 42px;
   height: 42px;
@@ -632,7 +638,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-input);
   padding: 10px;
   border-radius: var(--radius-md);
 }
@@ -655,14 +661,14 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-card);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   transition: all var(--transition-fast);
 }
 
 .debt-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-card-hover);
 }
 
 .debt-user-info {
@@ -696,7 +702,6 @@ a:hover {
 
 /* Swish button premium look */
 .btn-swish {
-  background: #ff007a;
   background: linear-gradient(135deg, #2D58A7 0%, #153B88 100%); /* Elegant blue theme matching Swish branding */
   border-color: transparent;
   color: white;
@@ -770,7 +775,7 @@ a:hover {
 }
 
 .comment-bubble {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-card);
   padding: 8px 12px;
   border-radius: var(--radius-md);
   font-size: 12px;
@@ -873,7 +878,7 @@ a:hover {
 }
 
 .participant-chip {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 8px;
