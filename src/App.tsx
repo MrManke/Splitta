@@ -1127,9 +1127,6 @@ function App() {
                 <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
                   Exportera Excel
                 </button>
-                <button className="btn btn-secondary btn-sm" onClick={handleShareTrip}>
-                  <Share2 size={12} style={{ marginRight: '4px' }}/> Dela
-                </button>
                 <button className="btn btn-primary btn-sm" onClick={handleOpenAddExpense}>
                   <Plus size={16} /> Lägg till utlägg
                 </button>
@@ -1292,7 +1289,12 @@ function App() {
         {/* --- VIEW: DEBTS / SETTLEMENT --- */}
         {activeTab === 'debts' && activeTrip && (
           <>
-            <h2>Avräkning & Reglering</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2>Avräkning & Reglering</h2>
+              <button className="btn btn-secondary btn-sm" onClick={handleShareTrip}>
+                <Share2 size={12} style={{ marginRight: '4px' }}/> Dela Sammanställning
+              </button>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', marginBottom: '8px' }}>
               <div 
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
@@ -1369,13 +1371,6 @@ function App() {
                     
                     <div className="debt-actions">
                       <button 
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleCopySwishInfo(settlement)}
-                        title="Kopiera delningsinfo"
-                      >
-                        <Share2 size={12} /> Dela
-                      </button>
-                      <button 
                         className="btn btn-swish btn-sm"
                         onClick={() => {
                           const receiver = allUsers.find(u => u.uid === settlement.to);
@@ -1386,12 +1381,12 @@ function App() {
                         Swish / QR
                       </button>
                       <button 
-                        className="btn btn-sm"
-                        style={{ background: 'var(--color-success)', color: '#fff', border: 'none' }}
+                        className="btn btn-sm btn-icon-only"
+                        style={{ background: 'transparent', color: 'var(--color-success)', border: '1px solid var(--color-success)', width: '32px', height: '32px', minHeight: '32px' }}
                         onClick={() => handleMarkAsPaid(settlement)}
                         title="Markera som betald"
                       >
-                        <Check size={12} /> Betald
+                        <Check size={16} />
                       </button>
                     </div>
                   </div>
