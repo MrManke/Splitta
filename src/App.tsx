@@ -502,17 +502,22 @@ function App() {
       
       if (detectedAmount !== null) {
         if (expenseAmount && parseFloat(expenseAmount) !== detectedAmount) {
-          triggerToast(`Det skannade beloppet (${detectedAmount} kr) matchar inte det angivna beloppet (${expenseAmount} kr). Ändra manuellt vid behov.`, 'error');
+          triggerToast(`Skannat belopp (${detectedAmount} kr) skiljer sig från angivet. Kvitto bifogat.`, 'error');
         } else {
           setExpenseAmount(detectedAmount.toString());
-          triggerToast(`Hittade belopp: ${detectedAmount} kr! Kontrollera gärna.`, 'success');
+          triggerToast(`Hittade belopp: ${detectedAmount} kr! Kvitto bifogat.`, 'success');
         }
       } else {
-        triggerToast('Hittade inget säkert belopp på kvittot. Knappa in det manuellt!', 'error');
+        triggerToast('Hittade inget belopp, men kvittot är bifogat. Knappa in beloppet manuellt!', 'error');
       }
     } catch (err: any) {
       setIsOcrScanning(false);
-      triggerToast(err.message || 'Kunde inte läsa kvittot.', 'error');
+      if (err.message === 'NO_TEXT_FOUND') {
+        setExpenseReceiptBase64(''); // Discard image
+        triggerToast('Bilden verkar inte innehålla någon text. Den kastades.', 'error');
+      } else {
+        triggerToast(err.message || 'Kunde inte läsa kvittot.', 'error');
+      }
     }
   };
 
@@ -1839,6 +1844,29 @@ function App() {
                 <div style={{ padding: '20px 0' }}>
                   <Sparkles className="logo-tab-icon" style={{ animation: 'spin 2s linear infinite', color: 'var(--color-primary-light)', margin: '0 auto 8px' }} />
                   <p style={{ fontSize: '13px', fontWeight: 600 }}>Tolkar kvitto lokalt med OCR...</p>
+                </div>
+              ) : expenseReceiptBase64 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                  {expenseReceiptBase64.startsWith('PDF:') ? (
+                    <div style={{ 
+                      display: 'flex', alignItems: 'center', gap: '8px', 
+                      background: 'rgba(255,255,255,0.05)', borderRadius: 'var(--radius-sm)',
+                      padding: '10px 12px', fontSize: '13px', color: 'var(--text-secondary)'
+                    }}>
+                      <FileText size={20} style={{ color: 'var(--color-primary-light)', flexShrink: 0 }} />
+                      <span>{expenseReceiptBase64.replace('PDF:', '')}</span>
+                    </div>
+                  ) : (
+                    <img src={expenseReceiptBase64} alt="Kvitto" style={{ maxHeight: '120px', borderRadius: 'var(--radius-sm)', objectFit: 'contain' }} />
+                  )}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setExpenseReceiptBase64('')}>
+                      Ta bort kvitto
+                    </button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => cameraInputRef.current?.click()}>
+                      Skanna nytt
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>

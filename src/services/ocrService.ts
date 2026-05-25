@@ -80,6 +80,10 @@ export const ocrService = {
       }
     }
 
+    if (!rawText.trim()) {
+      throw new Error('NO_TEXT_FOUND');
+    }
+
     return this.parseReceiptTotal(rawText);
   },
 
