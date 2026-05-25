@@ -20,6 +20,35 @@ const formatName = (name: string) => name.replace(' (Admin)', '').replace(' (Uta
 // Returns a phone number suitable for Swish, or empty string if not set
 const getSwishPhone = (phone?: string) => (!phone || phone === 'NOPHONE') ? '' : phone;
 
+// Compress images before converting to base64 to avoid Firestore 1MB limits
+const compressImage = (fileToCompress: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(fileToCompress);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200; // Good enough for OCR and screen viewing
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6)); // Compress to 60% JPEG
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 const QRCodeComponent: any = (QRCode as any).default || QRCode;
 
 function App() {
@@ -481,13 +510,11 @@ function App() {
 
     const isPdf = file.type === 'application/pdf';
 
-    // For images: show preview immediately. For PDFs: show a PDF icon placeholder
+    // For images: show compressed preview immediately. For PDFs: show a PDF icon placeholder
     if (!isPdf) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setExpenseReceiptBase64(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      compressImage(file).then(base64 => {
+        setExpenseReceiptBase64(base64);
+      }).catch(err => console.error('Compression failed:', err));
     } else {
       // Store a flag so we know it's a PDF (will be replaced with rendered image after OCR)
       setExpenseReceiptBase64('PDF:' + file.name);
@@ -502,7 +529,8 @@ function App() {
       
       if (detectedAmount !== null) {
         if (expenseAmount && parseFloat(expenseAmount) !== detectedAmount) {
-          triggerToast(`Skannat belopp (${detectedAmount} kr) skiljer sig från angivet. Kvitto bifogat.`, 'error');
+          setExpenseAmount(detectedAmount.toString());
+          triggerToast(`Beloppet uppdaterades till det skannade: ${detectedAmount} kr! Kvitto bifogat.`, 'success');
         } else {
           setExpenseAmount(detectedAmount.toString());
           triggerToast(`Hittade belopp: ${detectedAmount} kr! Kvitto bifogat.`, 'success');
@@ -1375,9 +1403,9 @@ function App() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => setPhotoBase64(reader.result as string);
-                      reader.readAsDataURL(file);
+                      compressImage(file).then(base64 => {
+                        setPhotoBase64(base64);
+                      }).catch(err => console.error('Compression failed:', err));
                     }
                   }}
                   style={{ display: 'none' }}
@@ -1843,7 +1871,7 @@ function App() {
               {isOcrScanning ? (
                 <div style={{ padding: '20px 0' }}>
                   <Sparkles className="logo-tab-icon" style={{ animation: 'spin 2s linear infinite', color: 'var(--color-primary-light)', margin: '0 auto 8px' }} />
-                  <p style={{ fontSize: '13px', fontWeight: 600 }}>Tolkar kvitto lokalt med OCR...</p>
+                  <p style={{ fontSize: '13px', fontWeight: 600 }}>Tolkar kvitto med Cloud AI-OCR...</p>
                 </div>
               ) : expenseReceiptBase64 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
@@ -1906,7 +1934,7 @@ function App() {
               <input 
                 type="file" 
                 ref={fileInputRef}
-                accept="image/*,application/pdf"
+                accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
                 onChange={handleReceiptUploadAndOCR}
                 style={{ display: 'none' }}
               />
