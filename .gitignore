@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Environment variables (API keys, secrets)
+.env
+.env.local
+.env.*.local
+
+# Admin/seed scripts (contain Firebase config)
+seed-data.mjs
+fix-phone.mjs
+migrate-olle-uid.mjs
+show-users.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

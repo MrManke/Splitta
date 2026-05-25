@@ -41,7 +41,7 @@ export const ocrService = {
                 requests: [
                   {
                     image: { content: base64Image },
-                    features: [{ type: 'TEXT_DETECTION' }]
+                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
                   }
                 ]
               }),
@@ -49,8 +49,9 @@ export const ocrService = {
 
             if (response.ok) {
               const data = await response.json();
-              const textAnnotations = data.responses?.[0]?.textAnnotations;
-              rawText = textAnnotations && textAnnotations.length > 0 ? textAnnotations[0].description : '';
+              const fullText = data.responses?.[0]?.fullTextAnnotation?.text || '';
+              const legacyText = data.responses?.[0]?.textAnnotations?.[0]?.description || '';
+              rawText = fullText || legacyText;
             } else {
               console.warn('Google Cloud Vision failed, falling back to Tesseract');
               rawText = await this.runTesseractOffline(file);

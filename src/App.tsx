@@ -113,9 +113,12 @@ function App() {
   const [emailLogin, setEmailLogin] = useState('');
   const [emailLinkSent, setEmailLinkSent] = useState(false);
   const [phonePromptInput, setPhonePromptInput] = useState('');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profilePhone, setProfilePhone] = useState('');
 
   // Refs for uploading files
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   // The data sync is now handled entirely by the useFirebase hook above!
@@ -251,11 +254,22 @@ function App() {
 
   const handleKickUser = async (targetUid: string) => {
     if (confirm('Är du säker på att du vill kasta ut denna användare från plattformen?')) {
-      // NOTE: Firebase Auth user deletion requires cloud functions or admin SDK.
-      // This only deletes their Firestore document.
       if (targetUid) {
          triggerToast('Användare borttagen från databasen.');
       }
+    }
+  };
+
+  const handleSendInviteEmail = async (email: string, alias: string) => {
+    try {
+      const actionCodeSettings = {
+        url: window.location.origin,
+        handleCodeInApp: true,
+      };
+      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      triggerToast(`✅ Inloggningslänk skickad till ${alias} (${email})!`);
+    } catch (err: any) {
+      triggerToast(`Kunde inte skicka till ${email}: ${err.message}`, 'error');
     }
   };
 
@@ -842,11 +856,10 @@ function App() {
             className="user-badge" 
             style={{ position: 'relative', cursor: 'pointer' }}
             onClick={() => {
-              if (confirm('Vill du logga ut?')) {
-                auth.signOut();
-              }
+              setProfilePhone(getSwishPhone(currentUser.phone) || '');
+              setShowProfileModal(true);
             }}
-            title="Klicka för att logga ut"
+            title="Min profil"
           >
             <div className="avatar">
               {formatName(currentUser.alias).charAt(0)}
@@ -1463,7 +1476,15 @@ function App() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <button 
+                            className="btn btn-secondary btn-sm" 
+                            style={{ padding: '4px 8px' }}
+                            onClick={() => handleSendInviteEmail(u.email, u.alias)}
+                            title={`Skicka inloggningslänk till ${u.email}`}
+                          >
+                            ✉️ Bjud in
+                          </button>
                           <button 
                             className="btn btn-secondary btn-sm" 
                             style={{ padding: '4px 8px' }}
@@ -1471,7 +1492,7 @@ function App() {
                           >
                             Redigera
                           </button>
-                          {u.uid !== 'USER_MAGNUS' && u.role !== 'superadmin' && (
+                          {u.uid !== currentUser.uid && u.role !== 'superadmin' && (
                             <button 
                               className="btn btn-danger btn-sm" 
                               style={{ padding: '4px 8px' }}
@@ -1641,6 +1662,77 @@ function App() {
         </div>
       )}
 
+      {/* --- MODAL: MY PROFILE --- */}
+      {showProfileModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>👤 Min profil</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowProfileModal(false)}>Stäng</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: 'var(--bg-glow)', borderRadius: 'var(--radius-md)', padding: '16px', textAlign: 'center' }}>
+                <div className="avatar" style={{ width: '56px', height: '56px', fontSize: '24px', margin: '0 auto 8px' }}>
+                  {formatName(currentUser.alias).charAt(0)}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-main)' }}>{currentUser.alias}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>{currentUser.email}</div>
+                <div style={{ fontSize: '11px', color: 'var(--color-primary-light)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{currentUser.role}</div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>📱 Swish-nummer</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="tel"
+                    className="input"
+                    placeholder="Ex: 0701234567"
+                    value={profilePhone}
+                    onChange={e => setProfilePhone(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={async () => {
+                      const phone = profilePhone.trim() || 'NOPHONE';
+                      const updated = { ...currentUser, phone };
+                      await firebaseService.saveUser(updated);
+                      setCurrentUser(updated);
+                      setShowProfileModal(false);
+                      triggerToast('Telefonnummer sparat! ✅');
+                    }}
+                  >
+                    Spara
+                  </button>
+                </div>
+              </div>
+
+              {currentUser.emails && currentUser.emails.length > 1 && (
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>📧 Kopplade e-postadresser</label>
+                  {currentUser.emails.map((em, i) => (
+                    <div key={i} style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '4px 0' }}>
+                      {em} {em === currentUser.email && <span style={{ color: 'var(--color-primary-light)' }}>✓ Primär</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                className="btn btn-danger"
+                style={{ width: '100%', marginTop: '8px' }}
+                onClick={() => {
+                  setShowProfileModal(false);
+                  if (confirm('Vill du logga ut?')) auth.signOut();
+                }}
+              >
+                🚪 Logga ut
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL: CREATE TRIP --- */}
       {showAddTripModal && (
         <div className="modal-overlay">
@@ -1751,18 +1843,38 @@ function App() {
               ) : (
                 <>
                   <Camera size={24} style={{ color: 'var(--color-primary-light)', marginBottom: '6px' }} />
-                  <p style={{ fontSize: '13px', fontWeight: 600 }}>Snabb-läs kvitto med OCR</p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ladda upp kvitto för att läsa av beloppet automatiskt</p>
-                  <button 
-                    type="button" 
-                    className="btn btn-secondary btn-sm" 
-                    style={{ marginTop: '10px' }}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Välj kvitto (bild eller PDF)
-                  </button>
+                  <p style={{ fontSize: '13px', fontWeight: 600 }}>Snabb-läs kvitto med AI-OCR</p>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ta ett foto eller välj fil (bild/PDF)</p>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'center' }}>
+                    <button 
+                      type="button" 
+                      className="btn btn-primary btn-sm" 
+                      onClick={() => cameraInputRef.current?.click()}
+                      title="Ta foto direkt med kameran"
+                    >
+                      📷 Kamera
+                    </button>
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Välj bild eller PDF från enheten"
+                    >
+                      📁 Välj fil
+                    </button>
+                  </div>
                 </>
               )}
+              {/* Camera capture input (direct, no file picker) */}
+              <input 
+                type="file" 
+                ref={cameraInputRef}
+                accept="image/*"
+                capture="environment"
+                onChange={handleReceiptUploadAndOCR}
+                style={{ display: 'none' }}
+              />
+              {/* File picker (gallery + PDF) */}
               <input 
                 type="file" 
                 ref={fileInputRef}
