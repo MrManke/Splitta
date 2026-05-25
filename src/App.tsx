@@ -144,6 +144,7 @@ function App() {
   const [phonePromptInput, setPhonePromptInput] = useState('');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profilePhone, setProfilePhone] = useState('');
+  const [profileAlias, setProfileAlias] = useState('');
 
   // Refs for uploading files
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -902,6 +903,7 @@ function App() {
             style={{ position: 'relative', cursor: 'pointer' }}
             onClick={() => {
               setProfilePhone(getSwishPhone(currentUser.phone) || '');
+              setProfileAlias(currentUser.alias);
               setShowProfileModal(true);
             }}
             title="Min profil"
@@ -1736,31 +1738,52 @@ function App() {
                 <div style={{ fontSize: '11px', color: 'var(--color-primary-light)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{currentUser.role}</div>
               </div>
 
-              <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>📱 Swish-nummer</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>👤 Mitt visningsnamn (Alias)</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={profileAlias}
+                    onChange={e => setProfileAlias(e.target.value)}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>📱 Swish-nummer</label>
                   <input
                     type="tel"
-                    className="input"
+                    className="input-field"
                     placeholder="Ex: 0701234567"
                     value={profilePhone}
                     onChange={e => setProfilePhone(e.target.value)}
-                    style={{ flex: 1 }}
                   />
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={async () => {
-                      const phone = profilePhone.trim() || 'NOPHONE';
-                      const updated = { ...currentUser, phone };
-                      await firebaseService.saveUser(updated);
-                      setCurrentUser(updated);
-                      setShowProfileModal(false);
-                      triggerToast('Telefonnummer sparat! ✅');
-                    }}
-                  >
-                    Spara
-                  </button>
                 </div>
+
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    const phone = profilePhone.trim() || 'NOPHONE';
+                    const alias = profileAlias.trim() || currentUser.alias;
+                    const updated = { ...currentUser, phone, alias };
+                    await firebaseService.saveUser(updated);
+                    setCurrentUser(updated);
+                    
+                    // Also update activeTrip participants to reflect the new alias immediately
+                    if (activeTrip) {
+                      const updatedParticipants = activeTrip.participants.map(p => 
+                        p.id === updated.uid ? { ...p, name: updated.alias } : p
+                      );
+                      const updatedTrip = { ...activeTrip, participants: updatedParticipants };
+                      await firebaseService.updateTrip(updatedTrip);
+                    }
+                    
+                    setShowProfileModal(false);
+                    triggerToast('Profil uppdaterad! ✅');
+                  }}
+                >
+                  Spara ändringar
+                </button>
               </div>
 
               {currentUser.emails && currentUser.emails.length > 1 && (
