@@ -1045,7 +1045,7 @@ function App() {
         )}
 
         {/* --- COMMON TRIP HEADER (Mini-dashboard) --- */}
-        {activeTrip && activeTab !== 'dashboard' && (
+        {activeTrip && activeTab !== 'dashboard' && activeTab !== 'admin' && (
           <div className="card" style={{ marginBottom: '20px', background: 'var(--bg-card)', position: 'relative', paddingTop: '36px' }}>
             <button 
               className="btn btn-secondary btn-sm" 
