@@ -31,7 +31,7 @@ const users = [
     email: 'magnus.ohlund74@gmail.com',
     alias: 'Ölle',
     role: 'superadmin',
-    phone: '',
+    phone: 'NOPHONE',
     emails: ['magnus.ohlund74@gmail.com', 'magnus.ohlund@outlook.com'],
   },
   {
@@ -47,7 +47,7 @@ const users = [
     email: 'bostrom1974@hotmail.com',
     alias: 'Steffe',
     role: 'user',
-    phone: '',
+    phone: 'NOPHONE',
     emails: ['bostrom1974@hotmail.com'],
   },
   {

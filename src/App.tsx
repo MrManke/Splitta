@@ -17,6 +17,9 @@ import './App.css';
 
 const formatName = (name: string) => name.replace(' (Admin)', '').replace(' (Utan konto)', '').trim();
 
+// Returns a phone number suitable for Swish, or empty string if not set
+const getSwishPhone = (phone?: string) => (!phone || phone === 'NOPHONE') ? '' : phone;
+
 const QRCodeComponent: any = (QRCode as any).default || QRCode;
 
 function App() {
@@ -730,34 +733,51 @@ function App() {
   const handleSavePhone = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-    if (phonePromptInput.trim().length < 5) {
-      alert('Ange ett giltigt telefonnummer');
-      return;
-    }
-    const updatedUser = { ...currentUser, phone: phonePromptInput.trim() };
+    const phone = phonePromptInput.trim();
+    // Allow saving empty (skip) - we store 'NOPHONE' as sentinel to not re-prompt
+    const updatedUser = { ...currentUser, phone: phone || 'NOPHONE' };
     await firebaseService.saveUser(updatedUser);
-    setCurrentUser(updatedUser); // Update local state so the phone prompt disappears
+    setCurrentUser(updatedUser);
   };
 
-  if (currentUser && !currentUser.phone) {
+  const handleSkipPhone = async () => {
+    if (!currentUser) return;
+    const updatedUser = { ...currentUser, phone: 'NOPHONE' };
+    await firebaseService.saveUser(updatedUser);
+    setCurrentUser(updatedUser);
+  };
+
+  // Only show phone prompt if phone is explicitly undefined/null (not empty string, not 'NOPHONE')
+  // Superadmins can set their phone via the admin panel
+  if (currentUser && currentUser.role !== 'superadmin' && (currentUser.phone === undefined || currentUser.phone === null)) {
     return (
       <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
         <div className="card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{ background: 'var(--color-primary-gradient)', width: '60px', height: '60px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: 'var(--shadow-glow)' }}>
+            <span style={{ fontSize: '28px' }}>📱</span>
+          </div>
           <h2 style={{ color: 'var(--text-main)', marginBottom: '15px' }}>Välkommen {currentUser.alias}!</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '25px', lineHeight: '1.5' }}>
-            För att Swish-funktionen ska fungera korrekt behöver du ange ditt telefonnummer (det nummer som är kopplat till din Swish).
+            Ange ditt Swish-nummer så kan kompisar swisha dig direkt i appen. Du kan alltid ändra det senare i profilen.
           </p>
-          <form onSubmit={handleSavePhone} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <form onSubmit={handleSavePhone} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <input 
               type="tel" 
               className="input" 
               placeholder="Ex: 0701234567" 
               value={phonePromptInput} 
               onChange={e => setPhonePromptInput(e.target.value)} 
-              required 
             />
             <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
-              Spara telefonnummer
+              💾 Spara telefonnummer
+            </button>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              style={{ width: '100%', padding: '12px', fontSize: '14px', opacity: 0.7 }}
+              onClick={handleSkipPhone}
+            >
+              Hoppa över för nu
             </button>
           </form>
         </div>
@@ -1269,7 +1289,7 @@ function App() {
                         className="btn btn-swish btn-sm"
                         onClick={() => {
                           const receiver = allUsers.find(u => u.uid === settlement.to);
-                          setSwishPhoneInput(receiver?.phone || '');
+                          setSwishPhoneInput(getSwishPhone(receiver?.phone));
                           setShowSwishModal(settlement);
                         }}
                       >
@@ -1536,8 +1556,8 @@ function App() {
                 <input 
                   type="tel" 
                   className="input" 
-                  value={editingUser.phone || ''} 
-                  onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })} 
+                  value={getSwishPhone(editingUser.phone) || ''} 
+                  onChange={e => setEditingUser({ ...editingUser, phone: e.target.value || 'NOPHONE' })} 
                 />
               </div>
               <div>
@@ -2173,8 +2193,10 @@ function App() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {activeTripSettlements.map((s, idx) => {
-                const payeePhone = allUsers.find(u => u.uid === s.to || u.alias === s.toName)?.phone || '0701234567';
-                const swishData = JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }});
+                const payeePhone = getSwishPhone(allUsers.find(u => u.uid === s.to || u.alias === s.toName)?.phone);
+                const swishData = payeePhone 
+                  ? JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})
+                  : JSON.stringify({ version: 1, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }});
                 const swishUrl = `swish://payment?data=${swishData}`;
                 return (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
