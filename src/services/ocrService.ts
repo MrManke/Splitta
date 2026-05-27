@@ -156,35 +156,66 @@ export const ocrService = {
   parseReceiptTotal(rawText: string): number | null {
     if (!rawText) return null;
 
-    // STEP A: Normalization
+    // STEP A: Clean up the text
     let text = rawText.toLowerCase();
     
-    // Normalize decimals: replace common mistakes like ',' with '.'
-    // We try to find numbers with 2 decimals like 123,45 or 123.45 and ensure they use '.'
-    // It's safer to just rely on regex capturing later.
-
     // Remove noise like common Swedish org numbers (xxxxxx-xxxx)
     text = text.replace(/\d{6}-\d{4}/g, '');
-    
     // Remove dates (YYYY-MM-DD or YY-MM-DD)
     text = text.replace(/\d{2,4}-\d{2}-\d{2}/g, '');
 
-    // Helper to extract all valid currency amounts from a string
-    const extractAmounts = (str: string): number[] => {
-      // Matches 123.45, 123,45, 123.00, etc.
-      const regex = /\b\d+[\.,]\d{2}\b/g;
+    // Helper to extract amounts from a string
+    // Matches: 123.45 | 1 234,56 | 123 , 45 | 12.34kr
+    const extractDecimalAmounts = (str: string): number[] => {
+      const regex = /(?<!\d)\d{1,3}(?:[ \.]?\d{3})*\s*[\.,]\s*\d{2}(?!\d)/g;
       const matches = str.match(regex);
       if (!matches) return [];
-      return matches.map(m => parseFloat(m.replace(',', '.')));
+      
+      return matches.map(m => {
+        let clean = m.replace(/\s/g, ''); // Remove spaces
+        const lastPunctuationIndex = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','));
+        if (lastPunctuationIndex !== -1) {
+          const integerPart = clean.substring(0, lastPunctuationIndex).replace(/[\.,]/g, '');
+          const decimalPart = clean.substring(lastPunctuationIndex + 1);
+          return parseFloat(`${integerPart}.${decimalPart}`);
+        }
+        return parseFloat(clean);
+      });
     };
 
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // STEP B: Look for explicit keywords first (Strongest signal)
+    // Match "totalt", "att betala", "summa", "belopp", "betalat", "kort"
+    const keywordRegex = /(?:totalt|att betala|summa|belopp|betalat|kort|sum)\s*:?\s*(\d{1,3}(?:[ \.]?\d{3})*(?:\s*[\.,]\s*\d{2})?)/gi;
+    let keywordMatches = [...text.matchAll(keywordRegex)];
     
-    // STEP B: Collect ALL valid amounts from the entire receipt
+    let keywordAmounts: number[] = [];
+    for (const match of keywordMatches) {
+      if (match[1]) {
+        let clean = match[1].replace(/\s/g, '');
+        const lastPunctuationIndex = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','));
+        if (lastPunctuationIndex !== -1 && clean.length - lastPunctuationIndex === 3) {
+          // Has 2 decimals
+          const integerPart = clean.substring(0, lastPunctuationIndex).replace(/[\.,]/g, '');
+          const decimalPart = clean.substring(lastPunctuationIndex + 1);
+          keywordAmounts.push(parseFloat(`${integerPart}.${decimalPart}`));
+        } else {
+          // Integer amount (like "Att betala 904")
+          keywordAmounts.push(parseFloat(clean.replace(/[\.,]/g, '')));
+        }
+      }
+    }
+
+    if (keywordAmounts.length > 0) {
+      // If we found keywords, the highest amount among them is extremely likely the total
+      const maxKeywordAmount = Math.max(...keywordAmounts);
+      if (maxKeywordAmount > 0) return maxKeywordAmount;
+    }
+
+    // STEP C: Fallback to Highest Amount Principle for any 2-decimal number
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let allAmounts: number[] = [];
     lines.forEach(line => {
-      // Exclude strings that look like typical phone numbers or weights if needed, but the regex already forces .XX
-      allAmounts.push(...extractAmounts(line));
+      allAmounts.push(...extractDecimalAmounts(line));
     });
 
     allAmounts = allAmounts.filter(a => a > 0);
@@ -193,10 +224,6 @@ export const ocrService = {
       return null;
     }
 
-    // STEP C: Highest Amount Principle
-    // On a receipt, the total is almost universally the highest currency amount with 2 decimals.
-    // By simply taking the max of all found amounts, we avoid issues where OCR misreads keywords 
-    // or grabs "Moms 6.74" instead of "Brutto 119.00".
     return Math.max(...allAmounts);
   }
 };
