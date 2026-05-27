@@ -730,6 +730,7 @@ a:hover {
 
 .modal-content {
   width: 100%;
+  max-width: 480px;
   background: #0f0f15;
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
