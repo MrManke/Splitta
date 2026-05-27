@@ -1893,16 +1893,14 @@ function App() {
 
             {/* OCR upload box */}
             <div style={{ 
-              border: '2px dashed var(--border-color)', 
+              border: '1px solid rgba(var(--color-primary-rgb), 0.3)', 
               borderRadius: 'var(--radius-md)', 
-              padding: '16px', 
-              textAlign: 'center', 
+              padding: '12px', 
               marginBottom: '18px',
-              background: 'var(--bg-card)',
-              position: 'relative'
+              background: 'var(--bg-glow)'
             }}>
               {isOcrScanning ? (
-                <div style={{ padding: '20px 0' }}>
+                <div style={{ padding: '20px 0', textAlign: 'center' }}>
                   <Sparkles className="logo-tab-icon" style={{ animation: 'spin 2s linear infinite', color: 'var(--color-primary-light)', margin: '0 auto 8px' }} />
                   <p style={{ fontSize: '13px', fontWeight: 600 }}>Tolkar kvitto med Cloud AI-OCR...</p>
                 </div>
@@ -1930,29 +1928,33 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <>
-                  <Camera size={24} style={{ color: 'var(--color-primary-light)', marginBottom: '6px' }} />
-                  <p style={{ fontSize: '13px', fontWeight: 600 }}>Snabb-läs kvitto med AI-OCR</p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ta ett foto eller välj fil (bild/PDF)</p>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
+                    <Camera size={24} style={{ color: 'var(--color-primary-light)' }} />
+                    <div>
+                      <p style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Snabb-läs kvitto</p>
+                      <p style={{ fontSize: '11px', color: 'var(--color-primary-light)', opacity: 0.8, margin: 0 }}>AI-tolkar beloppet</p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
                     <button 
                       type="button" 
                       className="btn btn-primary btn-sm" 
                       onClick={() => cameraInputRef.current?.click()}
-                      title="Ta foto direkt med kameran"
+                      style={{ padding: '6px 10px' }}
                     >
-                      📷 Kamera
+                      📷 Fota
                     </button>
                     <button 
                       type="button" 
                       className="btn btn-secondary btn-sm" 
                       onClick={() => fileInputRef.current?.click()}
-                      title="Välj bild eller PDF från enheten"
+                      style={{ padding: '6px 10px' }}
                     >
-                      📁 Välj fil
+                      📁 Välj
                     </button>
                   </div>
-                </>
+                </div>
               )}
               {/* Camera capture input (direct, no file picker) */}
               <input 
