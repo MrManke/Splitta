@@ -1277,7 +1277,7 @@ function App() {
 
         <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Theme Switcher */}
-          <div className="theme-switcher" style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 'var(--radius-full)', padding: '2px' }}>
+          <div className="theme-switcher" style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 'var(--radius-full)', padding: '2px', gap: '4px' }}>
             <button 
               className={`btn btn-sm btn-icon-only ${theme === 'blue' ? 'btn-primary' : ''}`}
               style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'blue' ? '#0ea5e9' : 'transparent', border: 'none' }}
@@ -1285,16 +1285,28 @@ function App() {
               title="Havsblå"
             />
             <button 
-              className={`btn btn-sm btn-icon-only ${theme === 'dark' ? 'btn-primary' : ''}`}
-              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'dark' ? '#333' : 'transparent', border: 'none' }}
-              onClick={() => setTheme('dark')}
-              title="Midnatt"
-            />
-            <button 
               className={`btn btn-sm btn-icon-only ${theme === 'purple' ? 'btn-primary' : ''}`}
               style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'purple' ? '#a855f7' : 'transparent', border: 'none' }}
               onClick={() => setTheme('purple')}
               title="Klassisk"
+            />
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'sunset' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'sunset' ? '#f97316' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('sunset')}
+              title="Solnedgång"
+            />
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'obsidian' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'obsidian' ? '#14b8a6' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('obsidian')}
+              title="Obsidian"
+            />
+            <button 
+              className={`btn btn-sm btn-icon-only ${theme === 'dark' ? 'btn-primary' : ''}`}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'dark' ? '#333' : 'transparent', border: 'none' }}
+              onClick={() => setTheme('dark')}
+              title="Midnatt"
             />
           </div>
 

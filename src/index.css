@@ -77,6 +77,36 @@
   --bg-glow: rgba(255, 255, 255, 0.05);
 }
 
+[data-theme="sunset"] {
+  --bg-main: #140803;
+  --bg-card: rgba(29, 14, 8, 0.7);
+  --bg-card-hover: rgba(43, 20, 11, 0.85);
+  --bg-input: rgba(18, 9, 5, 0.6);
+  --border-color-active: rgba(249, 115, 22, 0.4);
+  --color-primary: #f97316; /* Orange */
+  --color-primary-light: #fb923c;
+  --color-primary-gradient: linear-gradient(135deg, #f97316 0%, #e11d48 100%); /* Orange to Rose */
+  --shadow-glow: 0 0 20px rgba(249, 115, 22, 0.25);
+  --shadow-primary: 0 4px 15px rgba(249, 115, 22, 0.35);
+  --shadow-primary-hover: 0 4px 20px rgba(249, 115, 22, 0.5);
+  --bg-glow: rgba(249, 115, 22, 0.08);
+}
+
+[data-theme="obsidian"] {
+  --bg-main: #050505;
+  --bg-card: rgba(15, 15, 15, 0.7);
+  --bg-card-hover: rgba(25, 25, 25, 0.85);
+  --bg-input: rgba(10, 10, 10, 0.6);
+  --border-color-active: rgba(20, 184, 166, 0.4);
+  --color-primary: #14b8a6; /* Teal / Cyber Green */
+  --color-primary-light: #2dd4bf;
+  --color-primary-gradient: linear-gradient(135deg, #14b8a6 0%, #3b82f6 100%); /* Teal to Blue */
+  --shadow-glow: 0 0 20px rgba(20, 184, 166, 0.25);
+  --shadow-primary: 0 4px 15px rgba(20, 184, 166, 0.35);
+  --shadow-primary-hover: 0 4px 20px rgba(20, 184, 166, 0.5);
+  --bg-glow: rgba(20, 184, 166, 0.08);
+}
+
 /* Reset and Global Styles */
 * {
   box-sizing: border-box;
