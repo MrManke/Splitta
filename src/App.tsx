@@ -138,6 +138,7 @@ function App() {
   // Form Inputs - Album & Admin & Comments
   const [photoCaption, setPhotoCaption] = useState('');
   const [photoBase64, setPhotoBase64] = useState('');
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteAlias, setInviteAlias] = useState('');
   const [invitePhone, setInvitePhone] = useState('');
@@ -1893,7 +1894,8 @@ function App() {
                     <img 
                       src={photo.url} 
                       alt={photo.caption} 
-                      style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: 'var(--radius-md)' }} 
+                      onClick={() => setFullscreenPhoto(photo.url)}
+                      style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: 'var(--radius-md)', cursor: 'pointer' }} 
                     />
                     <div style={{ fontSize: '11px', textAlign: 'left' }}>
                       <div style={{ fontWeight: 700, color: 'var(--color-primary-light)' }}>{photo.uploaded_by}</div>
@@ -3000,6 +3002,30 @@ function App() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* --- MODAL: FULLSCREEN PHOTO --- */}
+      {fullscreenPhoto && (
+        <div 
+          className="modal-overlay" 
+          style={{ zIndex: 9999, padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setFullscreenPhoto(null)}
+        >
+          <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button 
+              className="btn btn-icon-only" 
+              style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', zIndex: 10 }}
+              onClick={(e) => { e.stopPropagation(); setFullscreenPhoto(null); }}
+            >
+              ✕
+            </button>
+            <img 
+              src={fullscreenPhoto} 
+              alt="Fullscreen" 
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 'var(--radius-md)', boxShadow: '0 10px 40px rgba(0,0,0,0.8)' }} 
+            />
+          </div>
         </div>
       )}
 
