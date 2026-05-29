@@ -97,8 +97,8 @@ function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
-  const [theme, setTheme] = useState<'blue' | 'purple' | 'dark'>(() => {
-    return (localStorage.getItem('OlleSplit_Theme') as 'blue' | 'purple' | 'dark') || 'blue';
+  const [theme, setTheme] = useState<'blue' | 'purple' | 'dark' | 'sunset' | 'obsidian'>(() => {
+    return (localStorage.getItem('OlleSplit_Theme') as 'blue' | 'purple' | 'dark' | 'sunset' | 'obsidian') || 'blue';
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'expenses' | 'debts' | 'album' | 'admin'>('dashboard');
 
@@ -1588,7 +1588,7 @@ function App() {
                                   <span>{exp.receipt_url.replace('PDF:', '')}</span>
                                 </div>
                               ) : (
-                                <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" />
+                                <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" onClick={() => setFullscreenPhoto(exp.receipt_url)} style={{ cursor: 'pointer' }} />
                               )}
                             </div>
                           )}
@@ -1873,7 +1873,8 @@ function App() {
                   <img 
                     src={photoBase64} 
                     alt="Preview" 
-                    style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }} 
+                    onClick={() => setFullscreenPhoto(photoBase64)}
+                    style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', cursor: 'pointer' }} 
                   />
                 )}
               </div>
@@ -2436,7 +2437,7 @@ function App() {
                       <span>{expenseReceiptBase64.replace('PDF:', '')}</span>
                     </div>
                   ) : (
-                    <img src={expenseReceiptBase64} alt="Kvitto" style={{ maxHeight: '120px', borderRadius: 'var(--radius-sm)', objectFit: 'contain' }} />
+                    <img src={expenseReceiptBase64} alt="Kvitto" onClick={() => setFullscreenPhoto(expenseReceiptBase64)} style={{ maxHeight: '120px', borderRadius: 'var(--radius-sm)', objectFit: 'contain', cursor: 'pointer' }} />
                   )}
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => setExpenseReceiptBase64('')}>
