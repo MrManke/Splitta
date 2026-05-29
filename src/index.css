@@ -93,18 +93,18 @@
 }
 
 [data-theme="obsidian"] {
-  --bg-main: #050505;
-  --bg-card: rgba(15, 15, 15, 0.7);
-  --bg-card-hover: rgba(25, 25, 25, 0.85);
-  --bg-input: rgba(10, 10, 10, 0.6);
-  --border-color-active: rgba(20, 184, 166, 0.4);
-  --color-primary: #14b8a6; /* Teal / Cyber Green */
-  --color-primary-light: #2dd4bf;
-  --color-primary-gradient: linear-gradient(135deg, #14b8a6 0%, #3b82f6 100%); /* Teal to Blue */
-  --shadow-glow: 0 0 20px rgba(20, 184, 166, 0.25);
-  --shadow-primary: 0 4px 15px rgba(20, 184, 166, 0.35);
-  --shadow-primary-hover: 0 4px 20px rgba(20, 184, 166, 0.5);
-  --bg-glow: rgba(20, 184, 166, 0.08);
+  --bg-main: #0a0202;
+  --bg-card: rgba(20, 5, 5, 0.8);
+  --bg-card-hover: rgba(35, 8, 8, 0.9);
+  --bg-input: rgba(12, 3, 3, 0.7);
+  --border-color-active: rgba(220, 38, 38, 0.5);
+  --color-primary: #dc2626; /* Deep Red */
+  --color-primary-light: #ef4444;
+  --color-primary-gradient: linear-gradient(135deg, #dc2626 0%, #7f1d1d 100%); /* Red to Dark Blood */
+  --shadow-glow: 0 0 25px rgba(220, 38, 38, 0.3);
+  --shadow-primary: 0 4px 15px rgba(220, 38, 38, 0.4);
+  --shadow-primary-hover: 0 4px 20px rgba(220, 38, 38, 0.6);
+  --bg-glow: rgba(220, 38, 38, 0.1);
 }
 
 /* Reset and Global Styles */

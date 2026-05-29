@@ -1298,7 +1298,7 @@ function App() {
             />
             <button 
               className={`btn btn-sm btn-icon-only ${theme === 'obsidian' ? 'btn-primary' : ''}`}
-              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'obsidian' ? '#14b8a6' : 'transparent', border: 'none' }}
+              style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, borderRadius: '50%', background: theme === 'obsidian' ? '#dc2626' : 'transparent', border: 'none' }}
               onClick={() => setTheme('obsidian')}
               title="Obsidian"
             />
