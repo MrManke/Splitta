@@ -1588,7 +1588,7 @@ function App() {
                                   <span>{exp.receipt_url.replace('PDF:', '')}</span>
                                 </div>
                               ) : (
-                                <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" onClick={() => setFullscreenPhoto(exp.receipt_url)} style={{ cursor: 'pointer' }} />
+                                <img src={exp.receipt_url} alt="Kvitto" className="expense-receipt-preview" onClick={() => setFullscreenPhoto(exp.receipt_url || null)} style={{ cursor: 'pointer' }} />
                               )}
                             </div>
                           )}
