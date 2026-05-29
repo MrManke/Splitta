@@ -6,6 +6,7 @@ En modern webbapplikation för att dela upp kostnader under resor och äventyr. 
 
 - **Resor & Deltagare**: Skapa resor och bjud in vänner (med e-post eller ghost-användare).
 - **Smarta Utlägg**: Lägg in utgifter, dela lika eller procentuellt, och bifoga kvitton via bild/kamera.
+- **Inloggning & Säkerhet**: Stöd för E-post/Lösenord, Google och Microsoft-inloggning. Skyddad med Firebase App Check (osynlig reCAPTCHA) och strikta Firestore-regler.
 - **Kvitto-AI (OCR)**: Scanna kvitton och låt appen automatiskt hitta totalbeloppet.
 - **Swish-integration**: Skapar automatiskt Swish-QR-koder och öppnar Swish-appen med ifyllt nummer, belopp och meddelande för snabba regleringar.
 - **Avancerad Export**: Generera en snygg slutrapport som **PDF** eller **Bild (JPG)**, eller dela direkt via **WhatsApp** och **E-post**.
@@ -15,7 +16,8 @@ En modern webbapplikation för att dela upp kostnader under resor och äventyr. 
 ## Teknikstack
 
 - **Frontend**: React, TypeScript, Vite
-- **Backend & Databas**: Firebase (Firestore) & Firebase Authentication (E-post/Magic Link)
+- **Backend & Databas**: Firebase (Firestore) & Firebase Authentication (Google, Microsoft, Lösenord)
+- **Säkerhet**: Firebase App Check (reCAPTCHA v3)
 - **AI/OCR**: Google Cloud Vision API (`DOCUMENT_TEXT_DETECTION`)
 - **Styling**: Vanilla CSS (med variabler och themes)
 - **Ikoner**: Lucide React

@@ -9,8 +9,18 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { firebaseService } from './services/firebaseService';
 import { useFirebase } from './hooks/useFirebase';
-import { signInWithPopup, googleProvider, auth, db, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from './services/firebase';
-import { disableNetwork, enableNetwork } from 'firebase/firestore';
+import { auth, db, googleProvider, microsoftProvider } from './services/firebase';
+import { 
+  signInWithPopup, 
+  signOut, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  isSignInWithEmailLink, 
+  signInWithEmailLink,
+  sendPasswordResetEmail,
+  deleteUser
+} from 'firebase/auth';
+import { disableNetwork, enableNetwork, deleteDoc, doc } from 'firebase/firestore';
 import { storageService, type Trip, type User } from './services/storageService';
 import { ocrService } from './services/ocrService';
 import './App.css';
@@ -140,11 +150,21 @@ function App() {
 
   // Form Inputs - Auth & Profile
   const [emailLogin, setEmailLogin] = useState('');
-  const [emailLinkSent, setEmailLinkSent] = useState(false);
+  const [passwordLogin, setPasswordLogin] = useState('');
+  const [createPasswordConfirm, setCreatePasswordConfirm] = useState('');
+  const [loginMode, setLoginMode] = useState<'choose' | 'email-password' | 'create-password'>('choose');
   const [phonePromptInput, setPhonePromptInput] = useState('');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profilePhone, setProfilePhone] = useState('');
   const [profileAlias, setProfileAlias] = useState('');
+
+  // Invite/Activation flow
+  const [inviteParam, setInviteParam] = useState<string | null>(null);
+  const [inviteAlias2, setInviteAlias2] = useState<string | null>(null);
+  const [activationMode, setActivationMode] = useState<'choose' | 'password'>('choose');
+  const [activationPassword, setActivationPassword] = useState('');
+  const [activationPasswordConfirm, setActivationPasswordConfirm] = useState('');
+  const [activationError, setActivationError] = useState('');
 
   // Refs for uploading files
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -179,7 +199,6 @@ function App() {
         signInWithEmailLink(auth, email, window.location.href)
           .then(() => {
             window.localStorage.removeItem('emailForSignIn');
-            // Remove the link query params from URL so it's clean
             window.history.replaceState(null, '', window.location.pathname);
           })
           .catch((error) => {
@@ -187,6 +206,17 @@ function App() {
             alert('Länken är antingen ogiltig eller har redan använts.');
           });
       }
+    }
+  }, []);
+
+  // Detect invite URL parameter
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get('invite');
+    const alias = params.get('alias');
+    if (invite) {
+      setInviteParam(invite.toLowerCase());
+      setInviteAlias2(alias || invite.split('@')[0]);
     }
   }, []);
 
@@ -267,13 +297,18 @@ function App() {
       return;
     }
 
-    const newUser: User = {
-      uid: 'USER_' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-      email: inviteEmail.toLowerCase(),
-      alias: inviteAlias || inviteEmail.split('@')[0],
-      role: 'user'
-    };
-    await firebaseService.saveUser(newUser);
+    const emailLower = inviteEmail.toLowerCase().trim();
+    let userToInvite = allUsers.find(u => u.email === emailLower || (u.emails && u.emails.includes(emailLower)));
+
+    if (!userToInvite) {
+      userToInvite = {
+        uid: 'USER_' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+        email: emailLower,
+        alias: inviteAlias || inviteEmail.split('@')[0],
+        role: 'user'
+      };
+      await firebaseService.saveUser(userToInvite);
+    }
 
     triggerToast(`Inbjudan skickad till ${inviteEmail}!`);
     setShowInviteModal(false);
@@ -283,23 +318,103 @@ function App() {
   };
 
   const handleKickUser = async (targetUid: string) => {
-    if (confirm('Är du säker på att du vill kasta ut denna användare från plattformen?')) {
+    if (confirm('Är du säker på att du vill kasta ut denna användare från plattformen? Deras utlägg kommer att finnas kvar i existerande resor som "Gäst-utlägg" för att inte förstöra kalkylerna, men användaren förlorar sin inloggning.')) {
       if (targetUid) {
+         await firebaseService.deleteUser(targetUid);
          triggerToast('Användare borttagen från databasen.');
       }
     }
   };
 
-  const handleSendInviteEmail = async (email: string, alias: string) => {
+
+
+  const generateInviteLink = (email: string, alias: string) => {
+    return `${window.location.origin}/?invite=${encodeURIComponent(email)}&alias=${encodeURIComponent(alias)}`;
+  };
+
+  const handleShareInvite = (email: string, alias: string, method: 'whatsapp' | 'email' | 'copy') => {
+    const activationUrl = generateInviteLink(email, alias);
+    const messageBody = `Hej ${alias}!\n\nDu har blivit inbjuden till Splitta. Klicka på länken nedan för att aktivera ditt konto och välja hur du vill logga in framöver (Google, Microsoft eller Lösenord):\n\n${activationUrl}\n\nVälkommen! 🤝`;
+
+    if (method === 'whatsapp') {
+      window.open(`https://wa.me/?text=${encodeURIComponent(messageBody)}`, '_blank');
+      triggerToast(`WhatsApp öppnat med inbjudan till ${alias}!`);
+    } else if (method === 'email') {
+      window.open(`mailto:${email}?subject=${encodeURIComponent('Inbjudan till Splitta')}&body=${encodeURIComponent(messageBody)}`, '_blank');
+      triggerToast(`E-postprogram öppnat med inbjudan till ${alias}!`);
+    } else {
+      navigator.clipboard.writeText(activationUrl);
+      triggerToast(`Aktiveringslänk kopierad till urklipp!`);
+    }
+  };
+
+  // OAuth Activation (for invite flow)
+  const handleOAuthActivation = async (provider: 'google' | 'microsoft') => {
     try {
-      const actionCodeSettings = {
-        url: window.location.origin,
-        handleCodeInApp: true,
-      };
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-      triggerToast(`✅ Inloggningslänk skickad till ${alias} (${email})!`);
-    } catch (err: any) {
-      triggerToast(`Kunde inte skicka till ${email}: ${err.message}`, 'error');
+      setActivationError('');
+      const authProvider = provider === 'google' ? googleProvider : microsoftProvider;
+      const result = await signInWithPopup(auth, authProvider);
+      const authenticatedEmail = result.user.email?.toLowerCase();
+      const urlInviteEmail = inviteParam;
+
+      // SECURITY: Must match invite email
+      if (authenticatedEmail !== urlInviteEmail) {
+        await signOut(auth);
+        setActivationError(`E-postadressen du loggade in med (${authenticatedEmail}) matchar inte inbjudan (${urlInviteEmail}). Logga in med rätt konto!`);
+        return;
+      }
+
+      // Match OK — link Firebase UID to existing Firestore user profile
+      const userDoc = await firebaseService.getUserByEmail(urlInviteEmail!);
+      if (userDoc) {
+        if (!userDoc.emails) userDoc.emails = [userDoc.email];
+        if (!userDoc.emails.includes(authenticatedEmail!)) {
+          userDoc.emails.push(authenticatedEmail!);
+        }
+        await firebaseService.saveUser(userDoc);
+      }
+      triggerToast(`Välkommen ${inviteAlias2}! Ditt konto har aktiverats.`);
+      window.history.replaceState(null, '', window.location.pathname);
+      setInviteParam(null);
+      setInviteAlias2(null);
+    } catch (error: any) {
+      console.error('Activation failed:', error);
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setActivationError('Något gick fel vid inloggningen. Försök igen.');
+      }
+    }
+  };
+
+  // Password Activation (for invite flow)
+  const handlePasswordActivation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActivationError('');
+    if (activationPassword.length < 6) {
+      setActivationError('Lösenordet måste vara minst 6 tecken.');
+      return;
+    }
+    if (activationPassword !== activationPasswordConfirm) {
+      setActivationError('Lösenorden matchar inte!');
+      return;
+    }
+    try {
+      await createUserWithEmailAndPassword(auth, inviteParam!, activationPassword);
+      // Link Firebase UID to existing Firestore user profile
+      const userDoc = await firebaseService.getUserByEmail(inviteParam!);
+      if (userDoc) {
+        if (!userDoc.emails) userDoc.emails = [userDoc.email];
+        await firebaseService.saveUser(userDoc);
+      }
+      triggerToast(`Välkommen ${inviteAlias2}! Ditt konto har aktiverats med lösenord.`);
+      window.history.replaceState(null, '', window.location.pathname);
+      setInviteParam(null);
+      setInviteAlias2(null);
+    } catch (error: any) {
+      if (error.code === 'auth/email-already-in-use') {
+        setActivationError('Det finns redan ett konto med den här e-postadressen. Logga in med Google, Microsoft eller lösenord på vanliga inloggningssidan istället.');
+      } else {
+        setActivationError(error.message);
+      }
     }
   };
 
@@ -409,7 +524,7 @@ function App() {
             finalSplits,
             currentUser!,
             expenseComment,
-            expenseReceiptBase64 === '' ? null : expenseReceiptBase64
+            expenseReceiptBase64 === '' ? undefined : expenseReceiptBase64
           );
         } else {
           await firebaseService.addExpense(
@@ -421,7 +536,7 @@ function App() {
             finalSplits,
             currentUser!,
             expenseComment,
-            expenseReceiptBase64 === '' ? null : expenseReceiptBase64
+            expenseReceiptBase64 === '' ? undefined : expenseReceiptBase64
           );
         }
         triggerToast(editingExpenseId ? 'Utlägget har uppdaterats!' : 'Utlägget har registrerats!');
@@ -468,7 +583,9 @@ function App() {
         'percentage',
         splits,
         currentUser,
-        'Automatisk reglering via Markera som betald'
+        'Automatisk reglering via Markera som betald',
+        undefined,
+        true // is_settlement
       );
       triggerToast(`Betalning registrerad! Skulden ar reglerad.`);
     } catch (err: any) {
@@ -567,9 +684,33 @@ function App() {
 
   const handleCopySwishInfo = (settlement: typeof showSwishModal) => {
     if (!settlement) return;
-    const text = `Hej ${settlement.fromName}! Reglering för ${activeTrip?.title}: Skicka ${settlement.amount} kr till mig på Swish. Tack! 🤝`;
+    const cleanPhone = swishPhoneInput ? swishPhoneInput.replace(/[^0-9]/g, '') : '';
+    const swishUrl = cleanPhone 
+      ? `https://app.swish.nu/1/p/sw/?sw=${cleanPhone}&amt=${Math.round(settlement.amount)}&msg=${encodeURIComponent(`Splitta: ${activeTrip?.title}`)}`
+      : '';
+    
+    let text = `Hej ${settlement.fromName}! Reglering för ${activeTrip?.title}: Skicka ${settlement.amount} kr till mig på Swish. Tack! 🤝`;
+    if (swishUrl) {
+      text += `\n\nBetala enkelt genom att klicka på denna länk på mobilen:\n${swishUrl}`;
+    }
+    
     navigator.clipboard.writeText(text);
     triggerToast('Swish-info kopierad till urklipp! Klar att delas.');
+  };
+
+  const handleCopySettlementText = (fromName: string, amount: number, payeePhone: string) => {
+    const cleanPhone = payeePhone ? payeePhone.replace(/[^0-9]/g, '') : '';
+    const swishUrl = cleanPhone 
+      ? `https://app.swish.nu/1/p/sw/?sw=${cleanPhone}&amt=${Math.round(amount)}&msg=${encodeURIComponent(`Splitta: ${activeTrip?.title}`)}`
+      : '';
+    
+    let text = `Hej ${fromName}! Reglering för ${activeTrip?.title}: Skicka ${amount} kr till mig på Swish. Tack! 🤝`;
+    if (swishUrl) {
+      text += `\n\nBetala enkelt genom att klicka på denna länk på mobilen:\n${swishUrl}`;
+    }
+    
+    navigator.clipboard.writeText(text);
+    triggerToast('Dela-text kopierad till urklipp!');
   };
 
   const handleExportCSV = () => {
@@ -636,10 +777,20 @@ function App() {
       
       lines.push(`${b_}Vem betalar vem?${b_}`);
       if (settlements.length === 0) {
-        lines.push('Alla ar kvitt!');
+        lines.push('Alla är kvitt!');
       } else {
         settlements.forEach(s => {
+          const payeePhone = getSwishPhone(activeTrip?.participants.find(p => p.id === s.to || p.name === s.toName)?.phone);
+          const cleanPhone = payeePhone ? payeePhone.replace(/[^0-9]/g, '') : '';
+          const swishUrl = cleanPhone 
+            ? `https://app.swish.nu/1/p/sw/?sw=${cleanPhone}&amt=${Math.round(s.amount)}&msg=${encodeURIComponent(`Splitta: ${activeTrip.title}`)}`
+            : '';
+
           lines.push(`${formatName(s.fromName)} -> ${formatName(s.toName)}: ${b_}${s.amount} ${activeTrip.currency}${b_}`);
+          if (swishUrl) {
+            lines.push(`  └─ Swisha: ${swishUrl}`);
+          }
+          lines.push('');
         });
       }
 
@@ -710,6 +861,7 @@ function App() {
   };
 
   const activeTripSettlements = activeTrip ? storageService.calculateSettlements(activeTrip) : [];
+  const isParticipant = activeTrip ? (activeTrip.participants.some(p => p.id === currentUser?.uid) || currentUser?.role === 'superadmin') : false;
   const activeTripBalances = activeTrip ? storageService.calculateBalances(activeTrip) : [];
 
   if (authLoading) {
@@ -723,21 +875,195 @@ function App() {
     );
   }
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleEmailPasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const actionCodeSettings = {
-        url: window.location.origin,
-        handleCodeInApp: true,
-      };
-      await sendSignInLinkToEmail(auth, emailLogin, actionCodeSettings);
-      window.localStorage.setItem('emailForSignIn', emailLogin);
-      setEmailLinkSent(true);
+      const email = emailLogin.trim().toLowerCase();
+      if (!email || !passwordLogin) return;
+
+      try {
+        // Först: försök logga in (fungerar om kontot redan finns)
+        await signInWithEmailAndPassword(auth, email, passwordLogin);
+      } catch (signInErr: any) {
+        // Om kontot inte finns i Firebase Auth, kolla om e-posten finns i Firestore
+        if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
+          const firestoreUser = await firebaseService.getUserByEmail(email);
+          if (firestoreUser) {
+            setLoginMode('create-password');
+            return;
+          }
+          // E-posten finns inte alls i systemet
+          triggerToast('Fel e-post eller lösenord.', 'error');
+        } else {
+          triggerToast('Inloggningen misslyckades: ' + signInErr.message, 'error');
+        }
+      }
     } catch (err: any) {
-      alert('Fel vid utskick av länk: ' + err.message);
+      triggerToast('Något gick fel. Försök igen.', 'error');
     }
   };
 
+  const handleCreatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordLogin !== createPasswordConfirm) {
+      triggerToast('Lösenorden matchar inte.', 'error');
+      return;
+    }
+    
+    try {
+      const email = emailLogin.trim().toLowerCase();
+      await createUserWithEmailAndPassword(auth, email, passwordLogin);
+      
+      const firestoreUser = await firebaseService.getUserByEmail(email);
+      if (firestoreUser) {
+        if (!firestoreUser.emails) firestoreUser.emails = [firestoreUser.email];
+        if (!firestoreUser.emails.includes(email)) firestoreUser.emails.push(email);
+        await firebaseService.saveUser(firestoreUser);
+        triggerToast(`Välkommen ${firestoreUser.alias}! Ditt lösenord har skapats.`);
+      }
+    } catch (createErr: any) {
+      if (createErr.code === 'auth/email-already-in-use') {
+        triggerToast('E-postadressen används redan. Om du loggat in med Google tidigare, fortsätt använda det, eller klicka på "Glömt lösenord" för att lägga till ett lösenord.', 'error');
+        setLoginMode('email-password');
+      } else if (createErr.code === 'auth/weak-password') {
+        triggerToast('Lösenordet måste vara minst 6 tecken.', 'error');
+      } else {
+        triggerToast('Kunde inte skapa konto: ' + createErr.message, 'error');
+      }
+    }
+  };
+
+  const handleResetPassword = async () => {
+    const email = emailLogin.trim().toLowerCase();
+    if (!email) {
+      triggerToast('Fyll i din e-postadress först!', 'error');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      window.alert(`Ett mail för att återställa/skapa lösenord har skickats till ${email}!\n\nKolla din inkorg (och skräppost) för att välja ditt nya lösenord.`);
+      triggerToast(`Ett mail har skickats till ${email}!`, 'success');
+    } catch (error: any) {
+      window.alert('Kunde inte skicka återställningslänk. Kontrollera att e-postadressen är korrekt.');
+    }
+  };
+
+  // --- INVITE ACTIVATION SCREEN ---
+  if (!currentUser && inviteParam) {
+    return (
+      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
+        <div className="card" style={{ maxWidth: '440px', width: '100%', textAlign: 'center', padding: '40px 24px' }}>
+          <div style={{ marginBottom: '30px' }}>
+            <div style={{ background: 'var(--color-primary-gradient)', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: 'var(--shadow-glow)' }}>
+              <Sparkles size={40} color="#fff" />
+            </div>
+            <h1 style={{ fontSize: '28px', color: 'var(--text-main)', marginBottom: '10px' }}>Välkommen{inviteAlias2 ? `, ${inviteAlias2}` : ''}!</h1>
+            <p style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              Du har blivit inbjuden till <strong>Splitta</strong>. Aktivera ditt konto genom att välja inloggningsmetod nedan.
+            </p>
+            <div style={{ background: 'var(--bg-input)', padding: '10px 14px', borderRadius: 'var(--radius-md)', marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+              Inbjuden e-post: <strong style={{ color: 'var(--text-main)' }}>{inviteParam}</strong>
+            </div>
+          </div>
+
+          {activationError && (
+            <div style={{ background: 'var(--bg-danger, rgba(239,68,68,0.1))', border: '1px solid var(--border-danger, rgba(239,68,68,0.3))', color: 'var(--color-danger)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '13px', lineHeight: '1.5', textAlign: 'left' }}>
+              <AlertTriangle size={16} style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} />
+              {activationError}
+            </div>
+          )}
+
+          {activationMode === 'choose' ? (
+            <>
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '12px' }}
+                onClick={() => handleOAuthActivation('google')}
+              >
+                🔵 Aktivera med Google
+              </button>
+
+              <button
+                className="btn"
+                style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '12px', background: '#00a4ef', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+                onClick={() => handleOAuthActivation('microsoft')}
+              >
+                🟦 Aktivera med Microsoft
+              </button>
+
+
+              <div style={{ width: '100%', borderBottom: '1px solid var(--border-color)', margin: '8px 0 16px' }}></div>
+
+              <button
+                className="btn btn-secondary"
+                style={{ width: '100%', padding: '14px', fontSize: '15px' }}
+                onClick={() => setActivationMode('password')}
+              >
+                🔑 Skapa lösenord istället
+              </button>
+
+              <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', fontSize: '13px', cursor: 'pointer' }}
+                  onClick={() => { setInviteParam(null); setInviteAlias2(null); window.history.replaceState(null, '', window.location.pathname); }}
+                >
+                  ← Redan registrerad? Logga in här
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn btn-sm"
+                style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', marginBottom: '16px', cursor: 'pointer' }}
+                onClick={() => { setActivationMode('choose'); setActivationError(''); }}
+              >
+                <ArrowLeft size={14} style={{ marginRight: '4px', verticalAlign: 'text-bottom' }} /> Tillbaka
+              </button>
+              <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>Skapa lösenord</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }}>
+                Kontot skapas med e-postadressen <strong>{inviteParam}</strong>
+              </p>
+              <form onSubmit={handlePasswordActivation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <input
+                  type="email"
+                  value={inviteParam || ''}
+                  autoComplete="username"
+                  style={{ display: 'none' }}
+                  readOnly
+                />
+                <input
+                  type="password"
+                  className="input-field"
+                  placeholder="Lösenord (minst 6 tecken)"
+                  value={activationPassword}
+                  onChange={e => setActivationPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+                <input
+                  type="password"
+                  className="input-field"
+                  placeholder="Bekräfta lösenord"
+                  value={activationPasswordConfirm}
+                  onChange={e => setActivationPasswordConfirm(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                />
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+                  ✅ Skapa konto
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- REGULAR LOGIN SCREEN ---
   if (!currentUser) {
     return (
       <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-main)', padding: '20px' }}>
@@ -752,37 +1078,118 @@ function App() {
           
           <button 
             className="btn btn-primary" 
-            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '20px' }}
-            onClick={() => signInWithPopup(auth, googleProvider).catch(err => alert(err.message))}
+            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '12px' }}
+            onClick={() => signInWithPopup(auth, googleProvider).catch(err => { if (err.code !== 'auth/popup-closed-by-user') alert(err.message); })}
           >
-            Logga in med Google
+            🔵 Logga in med Google
           </button>
 
-          <div style={{ width: '100%', borderBottom: '1px solid var(--border-color)', margin: '20px 0' }}></div>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '15px' }}>Eller logga in utan lösenord</p>
+          <button
+            className="btn"
+            style={{ width: '100%', padding: '16px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '20px', background: '#00a4ef', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            onClick={() => signInWithPopup(auth, microsoftProvider).catch(err => { if (err.code !== 'auth/popup-closed-by-user') alert(err.message); })}
+          >
+            🟦 Logga in med Microsoft
+          </button>
 
-          {emailLinkSent ? (
-            <div style={{ background: 'var(--bg-glow)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-primary)' }}>
-              <Check size={32} style={{ color: 'var(--color-primary)', margin: '0 auto 10px' }} />
-              <h3 style={{ marginBottom: '10px', color: 'var(--text-main)' }}>Kolla din mail!</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Vi har skickat en inloggningslänk till <strong>{emailLogin}</strong>. Klicka på länken i mailet för att logga in.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <input 
-                type="email" 
-                className="input-field" 
-                placeholder="E-postadress" 
-                value={emailLogin} 
-                onChange={e => setEmailLogin(e.target.value)} 
-                required 
-              />
-              <button type="submit" className="btn btn-secondary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
-                Skicka inloggningslänk
+          <div style={{ width: '100%', borderBottom: '1px solid var(--border-color)', margin: '12px 0' }}></div>
+
+          {loginMode === 'choose' ? (
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', padding: '14px', fontSize: '15px' }}
+              onClick={() => setLoginMode('email-password')}
+            >
+              🔑 Logga in med E-post & Lösenord
+            </button>
+          ) : loginMode === 'email-password' ? (
+            <>
+              <button
+                className="btn btn-sm"
+                style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', marginBottom: '12px', cursor: 'pointer' }}
+                onClick={() => setLoginMode('choose')}
+              >
+                <ArrowLeft size={14} style={{ marginRight: '4px', verticalAlign: 'text-bottom' }} /> Tillbaka
               </button>
-            </form>
+              <form onSubmit={handleEmailPasswordLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <input 
+                  type="email" 
+                  className="input-field" 
+                  placeholder="E-postadress" 
+                  value={emailLogin} 
+                  onChange={e => setEmailLogin(e.target.value)} 
+                  required 
+                  autoComplete="username"
+                />
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  placeholder="Lösenord" 
+                  value={passwordLogin} 
+                  onChange={e => setPasswordLogin(e.target.value)} 
+                  required 
+                  autoComplete="current-password"
+                />
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+                  Logga in
+                </button>
+                <div style={{ textAlign: 'center', marginTop: '4px' }}>
+                  <button 
+                    type="button"
+                    onClick={handleResetPassword}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Glömt / Lägg till lösenord?
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn btn-sm"
+                style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', marginBottom: '12px', cursor: 'pointer' }}
+                onClick={() => setLoginMode('email-password')}
+              >
+                <ArrowLeft size={14} style={{ marginRight: '4px', verticalAlign: 'text-bottom' }} /> Tillbaka
+              </button>
+              <h3 style={{ color: 'var(--text-main)', marginBottom: '8px', fontSize: '18px' }}>Skapa ditt lösenord</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px', lineHeight: '1.5' }}>
+                Du har blivit inbjuden men saknar lösenord. Vänligen bekräfta ditt lösenord för att aktivera kontot.
+              </p>
+              <form onSubmit={handleCreatePassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <input 
+                  type="email" 
+                  className="input-field" 
+                  value={emailLogin} 
+                  disabled
+                  style={{ opacity: 0.7 }}
+                  autoComplete="username"
+                />
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  placeholder="Lösenord" 
+                  value={passwordLogin} 
+                  onChange={e => setPasswordLogin(e.target.value)} 
+                  required 
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  placeholder="Bekräfta lösenord" 
+                  value={createPasswordConfirm} 
+                  onChange={e => setCreatePasswordConfirm(e.target.value)} 
+                  required 
+                  minLength={6}
+                />
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px' }}>
+                  ✅ Spara lösenord & Logga in
+                </button>
+              </form>
+            </>
           )}
         </div>
       </div>
@@ -1075,7 +1482,7 @@ function App() {
             <div style={{ textAlign: 'center' }}>
               <h2 style={{ fontSize: '24px', marginBottom: '4px' }}>{activeTrip.title}</h2>
               <div style={{ fontSize: '28px', fontWeight: '900', color: 'var(--color-primary-light)', marginBottom: '4px' }}>
-                {activeTrip.total_cost} <span style={{ fontSize: '16px', fontWeight: '600' }}>{activeTrip.currency}</span>
+                {Math.round(activeTrip.total_cost * 100) / 100} <span style={{ fontSize: '16px', fontWeight: '600' }}>{activeTrip.currency}</span>
               </div>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 {activeTrip.expenses.length} utlägg registrerade • {activeTrip.participants.length} deltagare
@@ -1095,22 +1502,26 @@ function App() {
                 <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
                   Exportera Excel
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={handleOpenAddExpense}>
-                  <Plus size={16} /> Lägg till utlägg
-                </button>
+                {isParticipant && (
+                  <button className="btn btn-primary btn-sm" onClick={handleOpenAddExpense}>
+                    <Plus size={16} /> Lägg till utlägg
+                  </button>
+                )}
               </div>
             </div>
 
             {activeTrip.expenses.length === 0 ? (
               <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <p>Det finns inga utlägg registrerade i den här resan.</p>
-                <button className="btn btn-primary" onClick={handleOpenAddExpense} style={{ marginTop: '16px' }}>
-                  Registrera det första utlägget
-                </button>
+                {isParticipant && (
+                  <button className="btn btn-primary" onClick={handleOpenAddExpense} style={{ marginTop: '16px' }}>
+                    Registrera det första utlägget
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {activeTrip.expenses.map(exp => {
+                {activeTrip.expenses.filter(e => !e.is_settlement).map(exp => {
                   const isExpanded = expandedExpense === exp.expense_id;
                   const payerName = formatName(activeTrip.participants.find(p => p.id === exp.paid_by)?.name || exp.created_by_alias);
                   
@@ -1207,27 +1618,29 @@ function App() {
                                 </div>
                               ))}
                               
-                              <form 
-                                className="comment-input-box"
-                                onSubmit={(e) => handleAddComment(e, exp.expense_id)}
-                              >
-                                <input 
-                                  type="text" 
-                                  className="input-field" 
-                                  style={{ padding: '8px 12px', fontSize: '13px' }}
-                                  placeholder="Skriv en kommentar..."
-                                  value={newCommentText[exp.expense_id] || ''}
-                                  onChange={(e) => setNewCommentText(prev => ({ ...prev, [exp.expense_id]: e.target.value }))}
-                                />
-                                <button className="btn btn-primary btn-icon-only" style={{ width: '38px', height: '38px' }} type="submit">
-                                  <Send size={14} />
-                                </button>
-                              </form>
+                              {isParticipant && (
+                                <form 
+                                  className="comment-input-box"
+                                  onSubmit={(e) => handleAddComment(e, exp.expense_id)}
+                                >
+                                  <input 
+                                    type="text" 
+                                    className="input-field" 
+                                    style={{ padding: '8px 12px', fontSize: '13px' }}
+                                    placeholder="Skriv en kommentar..."
+                                    value={newCommentText[exp.expense_id] || ''}
+                                    onChange={(e) => setNewCommentText(prev => ({ ...prev, [exp.expense_id]: e.target.value }))}
+                                  />
+                                  <button className="btn btn-primary btn-icon-only" style={{ width: '38px', height: '38px' }} type="submit">
+                                    <Send size={14} />
+                                  </button>
+                                </form>
+                              )}
                             </div>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                            { (currentUser.role !== 'user' || exp.paid_by === currentUser.uid) && (
+                            { isParticipant && (currentUser.role !== 'user' || exp.paid_by === currentUser.uid) && (
                               <>
                                 <button 
                                   className="btn btn-secondary btn-sm"
@@ -1337,28 +1750,71 @@ function App() {
                       </div>
                     </div>
                     
-                    <div className="debt-actions">
-                      <button 
-                        className="btn btn-swish btn-sm"
-                        onClick={() => {
-                          const receiver = allUsers.find(u => u.uid === settlement.to);
-                          setSwishPhoneInput(getSwishPhone(receiver?.phone));
-                          setShowSwishModal(settlement);
-                        }}
-                      >
-                        Swish / QR
-                      </button>
-                      <button 
-                        className="btn btn-sm btn-icon-only"
-                        style={{ background: 'transparent', color: 'var(--color-success)', border: '1px solid var(--color-success)', width: '32px', height: '32px', minHeight: '32px' }}
-                        onClick={() => handleMarkAsPaid(settlement)}
-                        title="Markera som betald"
-                      >
-                        <Check size={16} />
-                      </button>
-                    </div>
+                    {isParticipant && (
+                      <div className="debt-actions">
+                        <button 
+                          className="btn btn-swish btn-sm"
+                          onClick={() => {
+                            const receiver = activeTrip?.participants.find(p => p.id === settlement.to);
+                            setSwishPhoneInput(getSwishPhone(receiver?.phone));
+                            setShowSwishModal(settlement);
+                          }}
+                        >
+                          Swish / QR
+                        </button>
+                        <button 
+                          className="btn btn-sm btn-icon-only"
+                          style={{ background: 'transparent', color: 'var(--color-success)', border: '1px solid var(--color-success)', width: '32px', height: '32px', minHeight: '32px' }}
+                          onClick={() => handleMarkAsPaid(settlement)}
+                          title="Markera som betald"
+                        >
+                          <Check size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
+
+                {activeTrip.expenses.filter(e => e.is_settlement).length > 0 && (
+                  <div style={{ marginTop: '24px' }}>
+                    <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Reglerade betalningar</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {activeTrip.expenses.filter(e => e.is_settlement).map(exp => {
+                        // "Betalning: Ölle -> Steffe"
+                        const receiverName = exp.title.split('->')[1]?.trim() || '?';
+                        const payerName = exp.title.split(':')[1]?.split('->')[0]?.trim() || '?';
+                        return (
+                          <div key={exp.expense_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card-hover)', padding: '10px 14px', borderRadius: 'var(--radius-md)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div className="avatar" style={{ background: 'var(--color-success)', width: '28px', height: '28px', fontSize: '12px' }}>
+                                <Check size={14} />
+                              </div>
+                              <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                <strong style={{ color: 'var(--text-main)' }}>{payerName}</strong> betalade <strong style={{ color: 'var(--text-main)' }}>{receiverName}</strong>
+                                <div style={{ fontSize: '11px', opacity: 0.7 }}>{exp.created_at.slice(0, 10)}</div>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ fontWeight: 'bold', color: 'var(--color-success)', fontSize: '15px' }}>
+                                {exp.amount} {activeTrip.currency}
+                              </div>
+                              {isParticipant && (
+                                <button
+                                  className="btn btn-sm btn-icon-only"
+                                  style={{ background: 'transparent', color: 'var(--text-muted)', border: 'none', padding: '4px' }}
+                                  onClick={() => handleDeleteExpense(exp.expense_id, exp.title)}
+                                  title="Ångra och ta bort reglering"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -1374,7 +1830,8 @@ function App() {
               </span>
             </div>
 
-            <form onSubmit={handleAddPhoto} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-card)' }}>
+            {isParticipant && (
+              <form onSubmit={handleAddPhoto} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <button 
                   type="button" 
@@ -1422,6 +1879,7 @@ function App() {
                 <Upload size={14} /> Dela i albumet
               </button>
             </form>
+            )}
 
             {activeTrip.album.length === 0 ? (
               <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -1461,11 +1919,13 @@ function App() {
               </div>
             ) : (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <h2>Medlemshantering</h2>
-                  <button className="btn btn-primary btn-sm" onClick={() => setShowInviteModal(true)}>
-                    <Plus size={16} /> Bjud in användare
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => setShowInviteModal(true)}>
+                      <Plus size={16} /> Bjud in användare
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card" style={{ padding: '16px', background: 'rgba(255,255,255,0.01)' }}>
@@ -1493,18 +1953,37 @@ function App() {
                             <div style={{ fontWeight: 600, fontSize: '14px' }}>
                               {u.alias} {u.uid === 'USER_MAGNUS' && '👑'}
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{u.email} ({u.role})</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {u.email} ({u.role}) 
+                              {u.last_login_at && ` • Inloggad: ${new Date(u.last_login_at).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}
+                            </div>
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <button 
+                            className="btn btn-sm" 
+                            style={{ padding: '4px 8px', background: '#25D366', color: '#fff', border: 'none', fontSize: '12px' }}
+                            onClick={() => handleShareInvite(u.email, u.alias, 'whatsapp')}
+                            title={`Skicka inbjudan via WhatsApp`}
+                          >
+                            💬 WA
+                          </button>
+                          <button 
+                            className="btn btn-sm" 
+                            style={{ padding: '4px 8px', background: 'var(--color-primary)', color: '#fff', border: 'none', fontSize: '12px' }}
+                            onClick={() => handleShareInvite(u.email, u.alias, 'email')}
+                            title={`Skicka inbjudan via e-post`}
+                          >
+                            ✉️ E-post
+                          </button>
                           <button 
                             className="btn btn-secondary btn-sm" 
-                            style={{ padding: '4px 8px' }}
-                            onClick={() => handleSendInviteEmail(u.email, u.alias)}
-                            title={`Skicka inloggningslänk till ${u.email}`}
+                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            onClick={() => handleShareInvite(u.email, u.alias, 'copy')}
+                            title={`Kopiera aktiveringslänk`}
                           >
-                            ✉️ Bjud in
+                            📋 Länk
                           </button>
                           <button 
                             className="btn btn-secondary btn-sm" 
@@ -1513,7 +1992,7 @@ function App() {
                           >
                             Redigera
                           </button>
-                          {u.uid !== currentUser.uid && u.role !== 'superadmin' && (
+                          {u.uid !== currentUser.uid && (
                             <button 
                               className="btn btn-danger btn-sm" 
                               style={{ padding: '4px 8px' }}
@@ -1784,16 +2263,43 @@ function App() {
                 </div>
               )}
 
-              <button
-                className="btn btn-danger"
-                style={{ width: '100%', marginTop: '8px' }}
-                onClick={() => {
-                  setShowProfileModal(false);
-                  if (confirm('Vill du logga ut?')) auth.signOut();
-                }}
-              >
-                🚪 Logga ut
-              </button>
+              <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <button
+                  className="btn btn-danger"
+                  style={{ width: '100%' }}
+                  onClick={() => {
+                    setShowProfileModal(false);
+                    if (confirm('Vill du logga ut?')) auth.signOut();
+                  }}
+                >
+                  🚪 Logga ut
+                </button>
+                <button
+                  className="btn"
+                  style={{ width: '100%', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
+                  onClick={async () => {
+                    if (confirm('ÄR DU HELT SÄKER? Detta raderar din inloggning och profil permanent. Dina gamla utlägg ligger kvar i resorna som "Gäst-utlägg" så matematiken inte går sönder.')) {
+                      try {
+                        const user = auth.currentUser;
+                        if (user) {
+                          await deleteDoc(doc(db, 'users', currentUser.uid));
+                          await deleteUser(user);
+                          setShowProfileModal(false);
+                          triggerToast('Ditt konto har raderats permanent.', 'success');
+                        }
+                      } catch (error: any) {
+                        if (error.code === 'auth/requires-recent-login') {
+                          triggerToast('Du måste logga ut och logga in igen för att radera kontot av säkerhetsskäl.', 'error');
+                        } else {
+                          triggerToast('Kunde inte radera kontot: ' + error.message, 'error');
+                        }
+                      }
+                    }
+                  }}
+                >
+                  🗑️ Radera mitt konto
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2167,13 +2673,13 @@ function App() {
 
               <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block', margin: '20px 0' }}>
                 <QRCodeComponent 
-                  value={`swish://payment?data=${JSON.stringify({ version: 1, payee: { value: swishPhoneInput }, amount: { value: Math.round(showSwishModal.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})}`}
+                  value={`https://app.swish.nu/1/p/sw/?sw=${swishPhoneInput.replace(/[^0-9]/g, '')}&amt=${Math.round(showSwishModal.amount)}&msg=${encodeURIComponent(`Splitta: ${activeTrip.title}`)}`}
                   size={200}
                 />
               </div>
 
               <p style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '280px' }}>
-                Scanna QR-koden direkt med Swish-appen i en annan mobil för att hämta belopp, mottagare och meddelande automatiskt!
+                Skanna QR-koden direkt med din vanliga mobilkamera eller direkt i Swish-appen för att fästa belopp, mottagare och meddelande!
               </p>
 
               <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '10px' }}>
@@ -2428,11 +2934,11 @@ function App() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {activeTripSettlements.map((s, idx) => {
-                const payeePhone = getSwishPhone(allUsers.find(u => u.uid === s.to || u.alias === s.toName)?.phone);
-                const swishData = payeePhone 
-                  ? JSON.stringify({ version: 1, payee: { value: payeePhone }, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }})
-                  : JSON.stringify({ version: 1, amount: { value: Math.round(s.amount) }, message: { value: `Splitta: ${activeTrip.title}` }});
-                const swishUrl = `swish://payment?data=${swishData}`;
+                const payeePhone = getSwishPhone(activeTrip?.participants.find(p => p.id === s.to || p.name === s.toName)?.phone);
+                const cleanPhone = payeePhone ? payeePhone.replace(/[^0-9]/g, '') : '';
+                const swishUrl = cleanPhone 
+                  ? `https://app.swish.nu/1/p/sw/?sw=${cleanPhone}&amt=${Math.round(s.amount)}&msg=${encodeURIComponent(`Splitta: ${activeTrip.title}`)}`
+                  : '';
                 return (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div>
@@ -2443,9 +2949,52 @@ function App() {
                         {s.amount} {activeTrip.currency}
                       </div>
                     </div>
-                    <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
-                      <QRCodeComponent value={swishUrl} size={120} />
-                    </div>
+                    {swishUrl ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ background: '#fff', padding: '16px', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
+                          <QRCodeComponent value={swishUrl} size={120} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', width: '100%' }}>
+                          <a 
+                            href={swishUrl}
+                            className="btn btn-swish btn-sm"
+                            style={{ 
+                              textDecoration: 'none', 
+                              fontSize: '11px', 
+                              padding: '6px 8px', 
+                              flex: 1,
+                              textAlign: 'center',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            Swisha
+                          </a>
+                          <button 
+                            className="btn btn-secondary btn-sm"
+                            style={{ 
+                              fontSize: '11px', 
+                              padding: '6px 8px', 
+                              flex: 1,
+                              textAlign: 'center',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 'bold'
+                            }}
+                            onClick={() => handleCopySettlementText(s.fromName, s.amount, payeePhone)}
+                          >
+                            Dela
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '12px', color: '#64748b', maxWidth: '140px', textAlign: 'center', padding: '8px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                        Saknar Swish-nummer
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -11,24 +11,22 @@ service cloud.firestore {
     // Assuming we either set custom claims or trust the client role for now 
     // In a production app, custom claims request.auth.token.admin == true should be used.
     function isAdmin() {
-      return request.auth.token.email == 'magnus.ohlund@outlook' || 
+      return request.auth.token.email == 'magnus.ohlund@outlook.com' || 
              request.auth.token.email == 'magnus.ohlund74@gmail.com';
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if request.auth.uid == userId || isAdmin();
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth.uid == userId 
+                   || isAdmin()
+                   || (resource != null && request.auth.token.email != null && (request.auth.token.email == resource.data.email || request.auth.token.email in resource.data.emails));
     }
 
     match /trips/{tripId} {
-      // You can read the trip if you are an admin, or if your uid is in the participants array.
-      // Since participants is an array of objects in our current model, it might be easier
-      // to also have an array of simple string UIDs in the trip document, e.g., 'participant_uids'.
-      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid in resource.data.participant_uids);
+      // Trips use unguessable UUIDs. Any authenticated user with the link can read/update.
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      // Only admins or people in the trip can update
-      allow update: if isAuthenticated() && (isAdmin() || request.auth.uid in resource.data.participant_uids);
-      // Only admins can delete trips
+      allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
 

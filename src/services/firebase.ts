@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import { getAuth, GoogleAuthProvider, OAuthProvider, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -16,12 +17,26 @@ let app: any = null;
 let auth: any = null;
 let db: any = null;
 let googleProvider: any = null;
+let microsoftProvider: any = null;
+let appCheck: any = null;
 
 if (firebaseConfig.apiKey) {
   app = initializeApp(firebaseConfig);
+  
+  // Initialize App Check with reCAPTCHA v3
+  if (typeof window !== 'undefined') {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider('6LfkNwItAAAAAIhHhZkzZ7raWAUKpsRyM4oiMYex'),
+      isTokenAutoRefreshEnabled: true
+    });
+  }
+
   auth = getAuth(app);
   db = getFirestore(app);
   googleProvider = new GoogleAuthProvider();
+  microsoftProvider = new OAuthProvider('microsoft.com');
+  microsoftProvider.addScope('email');
+  microsoftProvider.addScope('profile');
 
   // Enable offline persistence (Fjäll-läge)
   enableIndexedDbPersistence(db).catch((err) => {
@@ -35,4 +50,4 @@ if (firebaseConfig.apiKey) {
   console.warn('FIREBASE MISSING: Skapa ditt projekt och lägg in nycklar i .env');
 }
 
-export { auth, db, googleProvider, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink };
+export { app, auth, db, googleProvider, microsoftProvider, appCheck, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink };

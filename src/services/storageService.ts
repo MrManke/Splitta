@@ -7,6 +7,7 @@ export interface User {
   role: 'superadmin' | 'admin' | 'user';
   phone?: string;
   emails?: string[]; // All linked email addresses
+  last_login_at?: string;
 }
 
 export interface Participant {
@@ -34,6 +35,7 @@ export interface Expense {
   splits: { [participantId: string]: number }; // percentage weight or shares (e.g. { USER_ID_123: 50, GHOST_01: 50 })
   comment?: string;
   receipt_url?: string; // base64 or URL
+  is_settlement?: boolean;
   created_at: string;
 }
 

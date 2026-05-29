@@ -19,6 +19,7 @@ export function useFirebase() {
     }
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser: any) => {
       if (firebaseUser) {
+        setAuthLoading(true);
         let userDoc = await firebaseService.getUser(firebaseUser.uid);
         const isSuperAdmin = firebaseUser.email === 'magnus.ohlund@outlook.com' || firebaseUser.email === 'magnus.ohlund74@gmail.com';
 
@@ -26,8 +27,8 @@ export function useFirebase() {
         if (!userDoc && firebaseUser.email) {
           userDoc = await firebaseService.getUserByEmail(firebaseUser.email);
           if (userDoc) {
-            // Link Firebase Auth UID to existing user doc
-            userDoc.uid = firebaseUser.uid;
+            // We intentionally do NOT change userDoc.uid to firebaseUser.uid!
+            // We keep the original USER_XXXX id so that Trip participant references don't break.
             if (!userDoc.emails) {
               userDoc.emails = [userDoc.email];
             }
@@ -54,6 +55,12 @@ export function useFirebase() {
            userDoc.role = 'superadmin';
            await firebaseService.saveUser(userDoc);
         }
+        const now = new Date().toISOString();
+        if (!userDoc.last_login_at || (new Date(now).getTime() - new Date(userDoc.last_login_at).getTime()) > 3600000) {
+           userDoc.last_login_at = now;
+           await firebaseService.saveUser(userDoc);
+        }
+
         setCurrentUser(userDoc);
       } else {
         setCurrentUser(null);
@@ -66,15 +73,22 @@ export function useFirebase() {
 
   // 2. Users Listener
   useEffect(() => {
-    if (!db) return;
-    const q = collection(db, 'users');
+    if (!db || !currentUser) return;
+    
+    let q;
+    if (currentUser.role === 'superadmin') {
+      q = collection(db, 'users');
+    } else {
+      q = query(collection(db, 'users'), where('uid', '==', currentUser.uid));
+    }
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData: User[] = [];
       snapshot.forEach((doc) => usersData.push(doc.data() as User));
       setAllUsers(usersData);
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentUser?.uid, currentUser?.role]);
 
   // 3. Trips Listener
   useEffect(() => {

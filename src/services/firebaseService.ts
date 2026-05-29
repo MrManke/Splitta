@@ -10,6 +10,10 @@ export const firebaseService = {
   async saveUser(user: User): Promise<void> {
     await setDoc(doc(db, USERS_COLLECTION, user.uid), user, { merge: true });
   },
+
+  async deleteUser(uid: string): Promise<void> {
+    await deleteDoc(doc(db, USERS_COLLECTION, uid));
+  },
   
   async getUser(uid: string): Promise<User | null> {
     const docSnap = await getDoc(doc(db, USERS_COLLECTION, uid));
@@ -61,7 +65,8 @@ export const firebaseService = {
     splits: { [participantId: string]: number },
     currentUser: User,
     comment?: string,
-    receipt_url?: string | null
+    receipt_url?: string,
+    is_settlement?: boolean
   ): Promise<void> {
     const expense_id = 'EXP_' + Math.random().toString(36).substr(2, 9).toUpperCase();
     const newExpense: Expense = {
@@ -73,6 +78,7 @@ export const firebaseService = {
       split_type,
       splits,
       comment,
+      is_settlement,
       created_at: new Date().toISOString()
     };
     if (receipt_url) {
@@ -80,7 +86,7 @@ export const firebaseService = {
     }
 
     const updatedExpenses = [...trip.expenses, newExpense];
-    const total_cost = updatedExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const total_cost = updatedExpenses.filter(e => !e.is_settlement).reduce((sum, e) => sum + e.amount, 0);
     
     await this.updateTrip({ ...trip, expenses: updatedExpenses, total_cost });
 
@@ -121,7 +127,7 @@ export const firebaseService = {
       return e;
     });
 
-    const total_cost = updatedExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const total_cost = updatedExpenses.filter(e => !e.is_settlement).reduce((sum, e) => sum + e.amount, 0);
     await this.updateTrip({ ...trip, expenses: updatedExpenses, total_cost });
 
     const involved = [...new Set([paid_by, ...Object.keys(splits).filter(id => splits[id] > 0)])];
@@ -134,7 +140,7 @@ export const firebaseService = {
 
     const updatedExpenses = trip.expenses.filter(e => e.expense_id !== expense_id);
     const updatedComments = trip.comments.filter(c => c.expense_id !== expense_id);
-    const total_cost = updatedExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const total_cost = updatedExpenses.filter(e => !e.is_settlement).reduce((sum, e) => sum + e.amount, 0);
 
     await this.updateTrip({ ...trip, expenses: updatedExpenses, comments: updatedComments, total_cost });
 
